@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Player Deposit Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .controls {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #38a169;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .btn-info {
+            background: #4299e1;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #3182ce;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(66, 153, 225, 0.4);
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            padding: 12px 24px;
+            background: #ed8936;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .file-label:hover {
+            background: #dd6b20;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(237, 137, 54, 0.4);
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 15px 12px 45px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #a0aec0;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .table-container {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #f7fafc;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #2d3748;
+            border-bottom: 2px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+        }
+
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        tr:hover {
+            background: #f7fafc;
+        }
+
+        .balance-positive {
+            color: #48bb78;
+            font-weight: 600;
+        }
+
+        .balance-negative {
+            color: #f56565;
+            font-weight: 600;
+        }
+
+        .balance-zero {
+            color: #718096;
+            font-weight: 600;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+
+        .btn-edit {
+            background: #4299e1;
+            color: white;
+        }
+
+        .btn-edit:hover {
+            background: #3182ce;
+        }
+
+        .btn-delete {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-delete:hover {
+            background: #e53e3e;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-content h2 {
+            margin-bottom: 20px;
+            color: #2d3748;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 25px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #718096;
+        }
+
+        .empty-state svg {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .currency {
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+            }
+
+            .search-box {
+                width: 100%;
+            }
+
+            table {
+                font-size: 14px;
+            }
+
+            th, td {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>💰 Player Deposit Tracker</h1>
+            <p>Track player deposits, games played, and balances</p>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <button class="btn btn-primary" onclick="openAddModal()">
+                ➕ Add Player
+            </button>
+            <button class="btn btn-success" onclick="downloadExcel()">
+                📥 Download Excel
+            </button>
+            <label for="fileInput" class="file-label">
+                📤 Upload Excel
+            </label>
+            <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="uploadExcel(event)">
+            <button class="btn btn-info" onclick="loadSampleData()">
+                🎲 Load Sample Data
+            </button>
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="Search players..." oninput="filterPlayers()">
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Total Players</h3>
+                <div class="value" id="totalPlayers">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Deposits</h3>
+                <div class="value currency" id="totalDeposits">$0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Games</h3>
+                <div class="value" id="totalGames">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Balance</h3>
+                <div class="value currency" id="totalBalance">$0</div>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container">
+            <table id="playersTable">
+                <thead>
+                    <tr>
+                        <th>Player Name</th>
+                        <th>Deposit Amount</th>
+                        <th>Deposit Date</th>
+                        <th>Amount per Game</th>
+                        <th>Games Played</th>
+                        <th>Total Spent</th>
+                        <th>Balance</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="8" class="empty-state">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                            <p>No players added yet. Click "Add Player" or "Upload Excel" to get started.</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div id="playerModal" class="modal">
+        <div class="modal-content">
+            <h2 id="modalTitle">Add New Player</h2>
+            <form id="playerForm" onsubmit="savePlayer(event)">
+                <div class="form-group">
+                    <label for="playerName">Player Name *</label>
+                    <input type="text" id="playerName" required>
+                </div>
+                <div class="form-group">
+                    <label for="depositAmount">Deposit Amount *</label>
+                    <input type="number" id="depositAmount" step="0.01" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label for="depositDate">Deposit Date *</label>
+                    <input type="date" id="depositDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="amountPerGame">Amount per Game *</label>
+                    <input type="number" id="amountPerGame" step="0.01" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label for="gamesPlayed">Games Played</label>
+                    <input type="number" id="gamesPlayed" min="0" value="0" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn" onclick="closeModal()" style="background: #cbd5e0; color: #2d3748;">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Data storage
+        let players = [];
+        let editingIndex = -1;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set default date to today
+            document.getElementById('depositDate').valueAsDate = new Date();
+
+            // Load from localStorage
+            loadFromLocalStorage();
+
+            if (players.length === 0) {
+                renderTable();
+            }
+        });
+
+        // Open Add Modal
+        function openAddModal() {
+            editingIndex = -1;
+            document.getElementById('modalTitle').textContent = 'Add New Player';
+            document.getElementById('playerForm').reset();
+            document.getElementById('depositDate').valueAsDate = new Date();
+            document.getElementById('playerModal').classList.add('active');
+        }
+
+        // Open Edit Modal
+        function openEditModal(index) {
+            editingIndex = index;
+            const player = players[index];
+            document.getElementById('modalTitle').textContent = 'Edit Player';
+            document.getElementById('playerName').value = player.name;
+            document.getElementById('depositAmount').value = player.deposit;
+            document.getElementById('depositDate').value = player.date;
+            document.getElementById('amountPerGame').value = player.amountPerGame;
+            document.getElementById('gamesPlayed').value = player.gamesPlayed;
+            document.getElementById('playerModal').classList.add('active');
+        }
+
+        // Close Modal
+        function closeModal() {
+            document.getElementById('playerModal').classList.remove('active');
+        }
+
+        // Save Player
+        function savePlayer(event) {
+            event.preventDefault();
+
+            const player = {
+                name: document.getElementById('playerName').value,
+                deposit: parseFloat(document.getElementById('depositAmount').value),
+                date: document.getElementById('depositDate').value,
+                amountPerGame: parseFloat(document.getElementById('amountPerGame').value),
+                gamesPlayed: parseInt(document.getElementById('gamesPlayed').value)
+            };
+
+            if (editingIndex === -1) {
+                players.push(player);
+            } else {
+                players[editingIndex] = player;
+            }
+
+            saveToLocalStorage();
+            renderTable();
+            closeModal();
+        }
+
+        // Delete Player
+        function deletePlayer(index) {
+            if (confirm('Are you sure you want to delete this player?')) {
+                players.splice(index, 1);
+                saveToLocalStorage();
+                renderTable();
+            }
+        }
+
+        // Calculate Balance
+        function calculateBalance(deposit, amountPerGame, gamesPlayed) {
+            return deposit - (amountPerGame * gamesPlayed);
+        }
+
+        // Format Currency
+        function formatCurrency(amount) {
+            return '$' + amount.toFixed(2);
+        }
+
+        // Render Table
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+
+            // Filter players
+            const filteredPlayers = players.filter(player =>
+                player.name.toLowerCase().includes(searchTerm)
+            );
+
+            if (filteredPlayers.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="empty-state">
+                            <p>${searchTerm ? 'No players found matching your search.' : 'No players added yet.'}</p>
+                        </td>
+                    </tr>
+                `;
+                updateStatistics();
+                return;
+            }
+
+            tbody.innerHTML = filteredPlayers.map((player, index) => {
+                const originalIndex = players.indexOf(player);
+                const totalSpent = player.amountPerGame * player.gamesPlayed;
+                const balance = calculateBalance(player.deposit, player.amountPerGame, player.gamesPlayed);
+                const balanceClass = balance > 0 ? 'balance-positive' : balance < 0 ? 'balance-negative' : 'balance-zero';
+
+                return `
+                    <tr>
+                        <td><strong>${player.name}</strong></td>
+                        <td>${formatCurrency(player.deposit)}</td>
+                        <td>${new Date(player.date).toLocaleDateString()}</td>
+                        <td>${formatCurrency(player.amountPerGame)}</td>
+                        <td>${player.gamesPlayed}</td>
+                        <td>${formatCurrency(totalSpent)}</td>
+                        <td class="${balanceClass}">${formatCurrency(balance)}</td>
+                        <td>
+                            <div class="actions">
+                                <button class="btn btn-sm btn-edit" onclick="openEditModal(${originalIndex})">✏️ Edit</button>
+                                <button class="btn btn-sm btn-delete" onclick="deletePlayer(${originalIndex})">🗑️ Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            updateStatistics();
+        }
+
+        // Update Statistics
+        function updateStatistics() {
+            const totalPlayers = players.length;
+            const totalDeposits = players.reduce((sum, p) => sum + p.deposit, 0);
+            const totalGames = players.reduce((sum, p) => sum + p.gamesPlayed, 0);
+            const totalBalance = players.reduce((sum, p) => sum + calculateBalance(p.deposit, p.amountPerGame, p.gamesPlayed), 0);
+
+            document.getElementById('totalPlayers').textContent = totalPlayers;
+            document.getElementById('totalDeposits').textContent = formatCurrency(totalDeposits);
+            document.getElementById('totalGames').textContent = totalGames;
+            document.getElementById('totalBalance').textContent = formatCurrency(totalBalance);
+        }
+
+        // Filter Players
+        function filterPlayers() {
+            renderTable();
+        }
+
+        // Save to LocalStorage
+        function saveToLocalStorage() {
+            localStorage.setItem('playerDeposits', JSON.stringify(players));
+        }
+
+        // Load from LocalStorage
+        function loadFromLocalStorage() {
+            const saved = localStorage.getItem('playerDeposits');
+            if (saved) {
+                players = JSON.parse(saved);
+                renderTable();
+            }
+        }
+
+        // Download Excel
+        function downloadExcel() {
+            if (players.length === 0) {
+                alert('No data to export. Please add some players first.');
+                return;
+            }
+
+            const exportData = players.map(player => {
+                const totalSpent = player.amountPerGame * player.gamesPlayed;
+                const balance = calculateBalance(player.deposit, player.amountPerGame, player.gamesPlayed);
+
+                return {
+                    'Player Name': player.name,
+                    'Deposit Amount': player.deposit,
+                    'Deposit Date': player.date,
+                    'Amount per Game': player.amountPerGame,
+                    'Games Played': player.gamesPlayed,
+                    'Total Spent': totalSpent,
+                    'Balance': balance
+                };
+            });
+
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Player Deposits');
+
+            // Auto-size columns
+            const maxWidth = exportData.reduce((w, r) => Math.max(w, Object.keys(r).length), 10);
+            ws['!cols'] = Array(maxWidth).fill({ wch: 18 });
+
+            XLSX.writeFile(wb, `Player_Deposits_${new Date().toISOString().split('T')[0]}.xlsx`);
+        }
+
+        // Upload Excel
+        function uploadExcel(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+                    // Map Excel data to our format
+                    players = jsonData.map(row => ({
+                        name: row['Player Name'] || row['name'] || '',
+                        deposit: parseFloat(row['Deposit Amount'] || row['deposit'] || 0),
+                        date: row['Deposit Date'] || row['date'] || new Date().toISOString().split('T')[0],
+                        amountPerGame: parseFloat(row['Amount per Game'] || row['amountPerGame'] || 0),
+                        gamesPlayed: parseInt(row['Games Played'] || row['gamesPlayed'] || 0)
+                    }));
+
+                    saveToLocalStorage();
+                    renderTable();
+                    alert('Excel file imported successfully!');
+                } catch (error) {
+                    alert('Error reading Excel file. Please make sure it has the correct format.');
+                    console.error(error);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+
+            // Reset file input
+            event.target.value = '';
+        }
+
+        // Load Sample Data
+        function loadSampleData() {
+            if (players.length > 0 && !confirm('This will replace existing data. Continue?')) {
+                return;
+            }
+
+            players = [
+                {
+                    name: 'John Smith',
+                    deposit: 500.00,
+                    date: '2024-01-15',
+                    amountPerGame: 25.00,
+                    gamesPlayed: 8
+                },
+                {
+                    name: 'Sarah Johnson',
+                    deposit: 750.00,
+                    date: '2024-01-20',
+                    amountPerGame: 30.00,
+                    gamesPlayed: 12
+                },
+                {
+                    name: 'Mike Williams',
+                    deposit: 600.00,
+                    date: '2024-02-01',
+                    amountPerGame: 25.00,
+                    gamesPlayed: 15
+                },
+                {
+                    name: 'Emily Brown',
+                    deposit: 800.00,
+                    date: '2024-02-10',
+                    amountPerGame: 20.00,
+                    gamesPlayed: 10
+                },
+                {
+                    name: 'David Lee',
+                    deposit: 1000.00,
+                    date: '2024-02-15',
+                    amountPerGame: 35.00,
+                    gamesPlayed: 5
+                }
+            ];
+
+            saveToLocalStorage();
+            renderTable();
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('playerModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>
