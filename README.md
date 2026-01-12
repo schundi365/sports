@@ -22,12 +22,12 @@ Rate players across 16 different skills in 4 categories:
 - **Fitness**: Stamina, Speed, Agility, Strength
 
 ### Training Session Statistics
-- Attendance tracking (Present in Nets)
+- Attendance tracking (Sessions Attended)
 - Technique focus monitoring
 - Performance metrics tracking
-- Dismissal tracking (Times Got Out)
-- Session performance (Wickets Taken, Extras)
-- Automated statistics calculation
+- Points scored/conceded tracking
+- Match statistics (Matches Played, Matches Won)
+- Automated statistics calculation (Win Rate, Points per Session)
 
 ### Expenses Management
 - **Track player expenses** with detailed records
@@ -52,7 +52,7 @@ Rate players across 16 different skills in 4 categories:
 ### Data Export
 - Export all player data to Excel
 - Comprehensive statistics included
-- Calculated metrics (dismissal rates, performance per session)
+- Calculated metrics (win rates, points per session, point differential)
 - **Expenses data** included in export
 
 ### Multi-User Database Support
@@ -73,7 +73,7 @@ Rate players across 16 different skills in 4 categories:
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd cricket-apps
+cd badminton-club-tracker
 ```
 
 2. Install dependencies:
