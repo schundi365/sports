@@ -1,6 +1,6 @@
 # Supabase Setup Guide
 
-This guide will help you set up Supabase for the MK Air Cricket Club Training Skills Tracker to enable multi-user access and data persistence.
+This guide will help you set up Supabase for the Badminton Club Tracker to enable multi-user access and data persistence.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ This guide will help you set up Supabase for the MK Air Cricket Club Training Sk
 1. Go to [https://supabase.com](https://supabase.com) and sign up/login
 2. Click "New Project"
 3. Fill in your project details:
-   - **Name**: MK Cricket Tracker (or your preferred name)
+   - **Name**: Badminton Club Tracker (or your preferred name)
    - **Database Password**: Choose a strong password
    - **Region**: Select the closest region to your users
    - **Pricing Plan**: Free (500MB database, 2GB bandwidth)
