@@ -27,7 +27,7 @@ const TrainingTracker = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [ratings, setRatings] = useState({});
-  const [netsData, setNetsData] = useState({});
+  const [trainingSessions, setTrainingSessions] = useState({});
   const [view, setView] = useState('list');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
@@ -119,26 +119,51 @@ const TrainingTracker = () => {
       });
       setRatings(ratingsObj);
 
-      // Load nets data
-      const { data: netsDataResult, error: netsError } = await supabase
-        .from('nets_data')
+      // Load training sessions data
+      const { data: trainingData, error: trainingError } = await supabase
+        .from('training_sessions')
         .select('*, players(name)');
 
-      if (netsError) throw netsError;
+      if (trainingError) throw trainingError;
 
-      // Transform nets data
-      const netsObj = {};
-      netsDataResult.forEach(nets => {
-        const playerName = nets.players.name;
-        netsObj[playerName] = {
-          presentInNets: nets.present_in_nets,
-          worksOnTechnique: nets.works_on_technique,
-          timesGotOut: nets.times_got_out,
-          wicketsTaken: nets.wickets_taken,
-          bowlingExtras: nets.bowling_extras
+      // Transform training sessions data
+      const trainingObj = {};
+      trainingData.forEach(session => {
+        const playerName = session.players.name;
+        trainingObj[playerName] = {
+          sessionsAttended: session.sessions_attended,
+          worksOnTechnique: session.works_on_technique,
+          pointsScored: session.points_scored,
+          pointsConceded: session.points_conceded,
+          matchesPlayed: session.matches_played,
+          matchesWon: session.matches_won
         };
       });
-      setNetsData(netsObj);
+      setTrainingSessions(trainingObj);
+
+      // Load expenses
+      const { data: expensesData, error: expensesError } = await supabase
+        .from('expenses')
+        .select('*, players(name)')
+        .order('date', { ascending: false });
+
+      if (expensesError) throw expensesError;
+
+      // Transform expenses data
+      const expensesObj = {};
+      expensesData.forEach(expense => {
+        const playerName = expense.players.name;
+        if (!expensesObj[playerName]) {
+          expensesObj[playerName] = [];
+        }
+        expensesObj[playerName].push({
+          id: expense.id,
+          amount: expense.amount,
+          description: expense.description,
+          date: expense.date
+        });
+      });
+      setExpenses(expensesObj);
 
     } catch (err) {
       console.error('Error loading data:', err);
@@ -218,16 +243,17 @@ const TrainingTracker = () => {
   const downloadExcel = () => {
     const exportData = playersList.map(player => {
       const playerRatings = ratings[player] || {};
-      const playerNets = netsData[player] || {};
+      const playerTraining = trainingSessions[player] || {};
 
       const row = {
         'Player Name': player,
         'Skills Average': getPlayerAverage(player),
-        'Present in Nets': playerNets.presentInNets || 0,
-        'Works on Technique': playerNets.worksOnTechnique || 'No',
-        'Times Got Out': playerNets.timesGotOut || 0,
-        'Wickets Taken': playerNets.wicketsTaken || 0,
-        'Bowling Extras': playerNets.bowlingExtras || 0,
+        'Sessions Attended': playerTraining.sessionsAttended || 0,
+        'Works on Technique': playerTraining.worksOnTechnique || 'No',
+        'Points Scored': playerTraining.pointsScored || 0,
+        'Points Conceded': playerTraining.pointsConceded || 0,
+        'Matches Played': playerTraining.matchesPlayed || 0,
+        'Matches Won': playerTraining.matchesWon || 0,
       };
 
       // Add all skill ratings
@@ -239,15 +265,12 @@ const TrainingTracker = () => {
       });
 
       // Add calculated stats
-      if (playerNets.presentInNets > 0) {
-        if (playerNets.timesGotOut > 0) {
-          row['Dismissal Rate (%)'] = ((playerNets.timesGotOut / playerNets.presentInNets) * 100).toFixed(1);
+      if (playerTraining.sessionsAttended > 0) {
+        if (playerTraining.pointsScored > 0) {
+          row['Points per Session'] = (playerTraining.pointsScored / playerTraining.sessionsAttended).toFixed(1);
         }
-        if (playerNets.wicketsTaken > 0) {
-          row['Wickets per Session'] = (playerNets.wicketsTaken / playerNets.presentInNets).toFixed(1);
-        }
-        if (playerNets.bowlingExtras > 0) {
-          row['Extras per Session'] = (playerNets.bowlingExtras / playerNets.presentInNets).toFixed(1);
+        if (playerTraining.matchesPlayed > 0) {
+          row['Win Rate (%)'] = ((playerTraining.matchesWon / playerTraining.matchesPlayed) * 100).toFixed(1);
         }
       }
 
@@ -300,9 +323,9 @@ const TrainingTracker = () => {
     }
   };
 
-  const updateNetsData = async (player, field, value) => {
+  const updateTrainingSessions = async (player, field, value) => {
     // Update local state immediately
-    setNetsData(prev => ({
+    setTrainingSessions(prev => ({
       ...prev,
       [player]: {
         ...prev[player],
@@ -315,19 +338,20 @@ const TrainingTracker = () => {
       try {
         const playerId = await getPlayerId(player);
 
-        // Get current nets data for this player
-        const currentData = netsData[player] || {};
+        // Get current training data for this player
+        const currentData = trainingSessions[player] || {};
         const updatedData = { ...currentData, [field]: value };
 
         const { error } = await supabase
-          .from('nets_data')
+          .from('training_sessions')
           .upsert({
             player_id: playerId,
-            present_in_nets: updatedData.presentInNets || 0,
+            sessions_attended: updatedData.sessionsAttended || 0,
             works_on_technique: updatedData.worksOnTechnique || 'No',
-            times_got_out: updatedData.timesGotOut || 0,
-            wickets_taken: updatedData.wicketsTaken || 0,
-            bowling_extras: updatedData.bowlingExtras || 0,
+            points_scored: updatedData.pointsScored || 0,
+            points_conceded: updatedData.pointsConceded || 0,
+            matches_played: updatedData.matchesPlayed || 0,
+            matches_won: updatedData.matchesWon || 0,
             updated_by: user.id
           }, {
             onConflict: 'player_id'
@@ -335,8 +359,8 @@ const TrainingTracker = () => {
 
         if (error) throw error;
       } catch (err) {
-        console.error('Error updating nets data:', err);
-        setError('Failed to save nets data to database');
+        console.error('Error updating training sessions:', err);
+        setError('Failed to save training data to database');
       }
     }
   };
@@ -353,7 +377,7 @@ const TrainingTracker = () => {
       .map(player => ({
         name: player,
         avg: parseFloat(getPlayerAverage(player)),
-        netsAttendance: netsData[player]?.presentInNets || 0
+        sessionsAttended: trainingSessions[player]?.sessionsAttended || 0
       }))
       .filter(p => p.avg > 0)
       .sort((a, b) => b.avg - a.avg)
@@ -364,7 +388,7 @@ const TrainingTracker = () => {
     return playersList
       .map(player => ({
         name: player,
-        attendance: netsData[player]?.presentInNets || 0
+        attendance: trainingSessions[player]?.sessionsAttended || 0
       }))
       .filter(p => p.attendance > 0)
       .sort((a, b) => b.attendance - a.attendance)
@@ -377,7 +401,7 @@ const TrainingTracker = () => {
     }
     setUser(null);
     setRatings({});
-    setNetsData({});
+    setTrainingSessions({});
     setPlayersList(initialPlayers);
   };
 
@@ -398,7 +422,7 @@ const TrainingTracker = () => {
     setExpenseDate('');
   };
 
-  const addExpense = () => {
+  const addExpense = async () => {
     if (!expensePlayer || !expenseAmount) return;
 
     const newExpense = {
@@ -408,19 +432,83 @@ const TrainingTracker = () => {
       id: Date.now()
     };
 
+    // Update local state immediately
     setExpenses(prev => ({
       ...prev,
       [expensePlayer]: [...(prev[expensePlayer] || []), newExpense]
     }));
 
+    // Save to database if configured
+    if (dbConfigured && user) {
+      try {
+        const playerId = await getPlayerId(expensePlayer);
+
+        const { error } = await supabase
+          .from('expenses')
+          .insert({
+            player_id: playerId,
+            amount: parseFloat(expenseAmount),
+            description: expenseDescription,
+            date: expenseDate,
+            created_by: user.id
+          });
+
+        if (error) throw error;
+
+        // Reload expenses to get the actual ID
+        const { data: expensesData, error: reloadError } = await supabase
+          .from('expenses')
+          .select('*, players(name)')
+          .eq('players.name', expensePlayer)
+          .order('date', { ascending: false });
+
+        if (reloadError) throw reloadError;
+
+        const expensesObj = {};
+        expensesData.forEach(expense => {
+          const playerName = expense.players.name;
+          if (!expensesObj[playerName]) {
+            expensesObj[playerName] = [];
+          }
+          expensesObj[playerName].push({
+            id: expense.id,
+            amount: expense.amount,
+            description: expense.description,
+            date: expense.date
+          });
+        });
+        setExpenses(expensesObj);
+
+      } catch (err) {
+        console.error('Error adding expense:', err);
+        setError('Failed to save expense to database');
+      }
+    }
+
     closeExpenseModal();
   };
 
-  const deleteExpense = (player, expenseId) => {
+  const deleteExpense = async (player, expenseId) => {
+    // Update local state immediately
     setExpenses(prev => ({
       ...prev,
       [player]: (prev[player] || []).filter(exp => exp.id !== expenseId)
     }));
+
+    // Delete from database if configured
+    if (dbConfigured && user) {
+      try {
+        const { error } = await supabase
+          .from('expenses')
+          .delete()
+          .eq('id', expenseId);
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error deleting expense:', err);
+        setError('Failed to delete expense from database');
+      }
+    }
   };
 
   const getPlayerExpenseTotal = (player) => {
@@ -684,7 +772,7 @@ const TrainingTracker = () => {
                     </div>
                     <div className="flex-1">
                       <p className="font-semibold">{player.name}</p>
-                      <p className="text-sm text-gray-600">{player.netsAttendance} nets sessions</p>
+                      <p className="text-sm text-gray-600">{player.sessionsAttended} training sessions</p>
                     </div>
                     <div className="text-2xl font-bold text-green-700">{player.avg}</div>
                   </div>
@@ -837,8 +925,8 @@ const TrainingTracker = () => {
             <h2 className="text-xl font-bold mb-4">Select a Player ({filteredPlayers.length})</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
               {filteredPlayers.map(player => {
-                const playerNetsData = netsData[player] || {};
-                const attendance = playerNetsData.presentInNets || 0;
+                const playerTrainingData = trainingSessions[player] || {};
+                const attendance = playerTrainingData.sessionsAttended || 0;
 
                 return (
                   <button
@@ -856,7 +944,7 @@ const TrainingTracker = () => {
                         )}
                         {attendance > 0 && (
                           <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs">
-                            {attendance} nets
+                            {attendance} sessions
                           </span>
                         )}
                       </div>
@@ -890,19 +978,19 @@ const TrainingTracker = () => {
                 </div>
               </div>
 
-              {/* Nets Session Data */}
+              {/* Training Session Data */}
               <div className="mb-8 p-6 bg-blue-50 rounded-lg">
-                <h3 className="text-lg font-bold text-gray-700 mb-4">Nets Session Statistics</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <h3 className="text-lg font-bold text-gray-700 mb-4">Training Session Statistics</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Present in Nets
+                      Sessions Attended
                     </label>
                     <input
                       type="number"
                       min="0"
-                      value={netsData[selectedPlayer]?.presentInNets || ''}
-                      onChange={(e) => updateNetsData(selectedPlayer, 'presentInNets', parseInt(e.target.value) || 0)}
+                      value={trainingSessions[selectedPlayer]?.sessionsAttended || ''}
+                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'sessionsAttended', parseInt(e.target.value) || 0)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                     />
@@ -913,8 +1001,8 @@ const TrainingTracker = () => {
                       Works on Technique
                     </label>
                     <select
-                      value={netsData[selectedPlayer]?.worksOnTechnique || 'No'}
-                      onChange={(e) => updateNetsData(selectedPlayer, 'worksOnTechnique', e.target.value)}
+                      value={trainingSessions[selectedPlayer]?.worksOnTechnique || 'No'}
+                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'worksOnTechnique', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="No">No</option>
@@ -926,13 +1014,13 @@ const TrainingTracker = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Times Got Out
+                      Points Scored
                     </label>
                     <input
                       type="number"
                       min="0"
-                      value={netsData[selectedPlayer]?.timesGotOut || ''}
-                      onChange={(e) => updateNetsData(selectedPlayer, 'timesGotOut', parseInt(e.target.value) || 0)}
+                      value={trainingSessions[selectedPlayer]?.pointsScored || ''}
+                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'pointsScored', parseInt(e.target.value) || 0)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                     />
@@ -940,13 +1028,13 @@ const TrainingTracker = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Wickets Taken
+                      Points Conceded
                     </label>
                     <input
                       type="number"
                       min="0"
-                      value={netsData[selectedPlayer]?.wicketsTaken || ''}
-                      onChange={(e) => updateNetsData(selectedPlayer, 'wicketsTaken', parseInt(e.target.value) || 0)}
+                      value={trainingSessions[selectedPlayer]?.pointsConceded || ''}
+                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'pointsConceded', parseInt(e.target.value) || 0)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                     />
@@ -954,13 +1042,27 @@ const TrainingTracker = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Bowling Extras
+                      Matches Played
                     </label>
                     <input
                       type="number"
                       min="0"
-                      value={netsData[selectedPlayer]?.bowlingExtras || ''}
-                      onChange={(e) => updateNetsData(selectedPlayer, 'bowlingExtras', parseInt(e.target.value) || 0)}
+                      value={trainingSessions[selectedPlayer]?.matchesPlayed || ''}
+                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'matchesPlayed', parseInt(e.target.value) || 0)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="0"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Matches Won
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={trainingSessions[selectedPlayer]?.matchesWon || ''}
+                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'matchesWon', parseInt(e.target.value) || 0)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                     />
@@ -968,29 +1070,32 @@ const TrainingTracker = () => {
                 </div>
 
                 {/* Stats Summary */}
-                {netsData[selectedPlayer]?.presentInNets > 0 && (
+                {trainingSessions[selectedPlayer]?.sessionsAttended > 0 && (
                   <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {netsData[selectedPlayer]?.timesGotOut > 0 && (
+                    {trainingSessions[selectedPlayer]?.pointsScored > 0 && (
                       <div className="bg-white p-3 rounded-lg text-center">
-                        <div className="text-sm text-gray-600">Dismissal Rate</div>
-                        <div className="text-lg font-bold text-red-600">
-                          {((netsData[selectedPlayer].timesGotOut / netsData[selectedPlayer].presentInNets) * 100).toFixed(1)}%
-                        </div>
-                      </div>
-                    )}
-                    {netsData[selectedPlayer]?.wicketsTaken > 0 && (
-                      <div className="bg-white p-3 rounded-lg text-center">
-                        <div className="text-sm text-gray-600">Wickets/Session</div>
+                        <div className="text-sm text-gray-600">Points/Session</div>
                         <div className="text-lg font-bold text-green-600">
-                          {(netsData[selectedPlayer].wicketsTaken / netsData[selectedPlayer].presentInNets).toFixed(1)}
+                          {(trainingSessions[selectedPlayer].pointsScored / trainingSessions[selectedPlayer].sessionsAttended).toFixed(1)}
                         </div>
                       </div>
                     )}
-                    {netsData[selectedPlayer]?.bowlingExtras > 0 && (
+                    {trainingSessions[selectedPlayer]?.matchesPlayed > 0 && (
                       <div className="bg-white p-3 rounded-lg text-center">
-                        <div className="text-sm text-gray-600">Extras/Session</div>
-                        <div className="text-lg font-bold text-orange-600">
-                          {(netsData[selectedPlayer].bowlingExtras / netsData[selectedPlayer].presentInNets).toFixed(1)}
+                        <div className="text-sm text-gray-600">Win Rate</div>
+                        <div className="text-lg font-bold text-blue-600">
+                          {((trainingSessions[selectedPlayer].matchesWon / trainingSessions[selectedPlayer].matchesPlayed) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    )}
+                    {trainingSessions[selectedPlayer]?.pointsScored > 0 && trainingSessions[selectedPlayer]?.pointsConceded > 0 && (
+                      <div className="bg-white p-3 rounded-lg text-center">
+                        <div className="text-sm text-gray-600">Point Differential</div>
+                        <div className={`text-lg font-bold ${(trainingSessions[selectedPlayer].pointsScored - trainingSessions[selectedPlayer].pointsConceded) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {(trainingSessions[selectedPlayer].pointsScored - trainingSessions[selectedPlayer].pointsConceded)}
+                        </div>
+                      </div>
+                    )}
                         </div>
                       </div>
                     )}
