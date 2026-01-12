@@ -1,5 +1,5 @@
 -- ============================================
--- MK Air Cricket Club Training Skills Tracker
+-- Badminton Club Tracker
 -- Database Schema for Supabase
 -- ============================================
 
@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS players (
 CREATE TABLE IF NOT EXISTS skill_ratings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-  category TEXT NOT NULL, -- 'batting', 'bowling', 'fielding', 'fitness'
-  skill_name TEXT NOT NULL, -- e.g., 'technique', 'pace', 'catching', etc.
+  category TEXT NOT NULL, -- 'singles', 'doubles', 'service', 'fitness'
+  skill_name TEXT NOT NULL, -- e.g., 'footwork', 'smash', 'stamina', etc.
   rating INTEGER CHECK (rating >= 0 AND rating <= 10),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -33,19 +33,31 @@ CREATE TABLE IF NOT EXISTS skill_ratings (
   UNIQUE(player_id, category, skill_name)
 );
 
--- Nets session data table
-CREATE TABLE IF NOT EXISTS nets_data (
+-- Training sessions data table
+CREATE TABLE IF NOT EXISTS training_sessions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-  present_in_nets INTEGER DEFAULT 0,
+  sessions_attended INTEGER DEFAULT 0,
   works_on_technique TEXT DEFAULT 'No', -- 'Yes', 'No', 'Sometimes', 'Always'
-  times_got_out INTEGER DEFAULT 0,
-  wickets_taken INTEGER DEFAULT 0,
-  bowling_extras INTEGER DEFAULT 0,
+  points_scored INTEGER DEFAULT 0,
+  points_conceded INTEGER DEFAULT 0,
+  matches_played INTEGER DEFAULT 0,
+  matches_won INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_by UUID REFERENCES auth.users(id),
   UNIQUE(player_id)
+);
+
+-- Expenses table
+CREATE TABLE IF NOT EXISTS expenses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  amount DECIMAL(10,2) NOT NULL,
+  description TEXT,
+  date DATE DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by UUID REFERENCES auth.users(id)
 );
 
 -- User profiles table (extends auth.users)
@@ -64,7 +76,8 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 CREATE INDEX IF NOT EXISTS idx_players_name ON players(name);
 CREATE INDEX IF NOT EXISTS idx_skill_ratings_player_id ON skill_ratings(player_id);
-CREATE INDEX IF NOT EXISTS idx_nets_data_player_id ON nets_data(player_id);
+CREATE INDEX IF NOT EXISTS idx_training_sessions_player_id ON training_sessions(player_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_player_id ON expenses(player_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON profiles(username);
 
 -- ============================================
@@ -74,7 +87,8 @@ CREATE INDEX IF NOT EXISTS idx_profiles_username ON profiles(username);
 -- Enable RLS on all tables
 ALTER TABLE players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE skill_ratings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE nets_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE training_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 -- Players policies
@@ -115,22 +129,47 @@ CREATE POLICY "Anyone can update skill ratings"
   TO authenticated
   USING (true);
 
--- Nets data policies
--- Anyone authenticated can read nets data
-CREATE POLICY "Anyone can view nets data"
-  ON nets_data FOR SELECT
+-- Training sessions policies
+-- Anyone authenticated can read training sessions
+CREATE POLICY "Anyone can view training sessions"
+  ON training_sessions FOR SELECT
   TO authenticated
   USING (true);
 
--- Anyone authenticated can insert nets data
-CREATE POLICY "Anyone can add nets data"
-  ON nets_data FOR INSERT
+-- Anyone authenticated can insert training sessions
+CREATE POLICY "Anyone can add training sessions"
+  ON training_sessions FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
--- Anyone authenticated can update nets data
-CREATE POLICY "Anyone can update nets data"
-  ON nets_data FOR UPDATE
+-- Anyone authenticated can update training sessions
+CREATE POLICY "Anyone can update training sessions"
+  ON training_sessions FOR UPDATE
+  TO authenticated
+  USING (true);
+
+-- Expenses policies
+-- Anyone authenticated can read expenses
+CREATE POLICY "Anyone can view expenses"
+  ON expenses FOR SELECT
+  TO authenticated
+  USING (true);
+
+-- Anyone authenticated can insert expenses
+CREATE POLICY "Anyone can add expenses"
+  ON expenses FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+-- Anyone authenticated can update expenses
+CREATE POLICY "Anyone can update expenses"
+  ON expenses FOR UPDATE
+  TO authenticated
+  USING (true);
+
+-- Anyone authenticated can delete expenses
+CREATE POLICY "Anyone can delete expenses"
+  ON expenses FOR DELETE
   TO authenticated
   USING (true);
 
@@ -187,7 +226,7 @@ CREATE TRIGGER update_players_updated_at BEFORE UPDATE ON players
 CREATE TRIGGER update_skill_ratings_updated_at BEFORE UPDATE ON skill_ratings
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_nets_data_updated_at BEFORE UPDATE ON nets_data
+CREATE TRIGGER update_training_sessions_updated_at BEFORE UPDATE ON training_sessions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
@@ -199,7 +238,7 @@ CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
 
 -- Insert some sample players (uncomment if needed)
 -- INSERT INTO players (name) VALUES
---   ('John Smith'),
---   ('Sarah Johnson'),
---   ('Mike Williams')
+--   ('Alice Chen'),
+--   ('Bob Kumar'),
+--   ('Carol Singh')
 -- ON CONFLICT (name) DO NOTHING;
