@@ -1,7 +1,7 @@
 {
   "name": "badminton-club-tracker",
   "version": "1.0.0",
-  "homepage": "https://schundi365.github.io/cricket-apps",
+  "homepage": "https://schundi365.github.io/sportinton",
   "private": true,
   "dependencies": {
     "@supabase/supabase-js": "^2.90.1",
