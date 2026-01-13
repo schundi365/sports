@@ -257,7 +257,133 @@ const TrainingTracker = () => {
   };
 
   const downloadExcel = () => {
-    const exportData = playersList.map(player => {
+    // Create workbook with multiple sheets
+    const workbook = XLSX.utils.book_new();
+
+    // Sheet 1: Weekly Expense Tracker (like the image format)
+    const weeklyData = [];
+    
+    // Get current week dates
+    const today = new Date();
+    const currentWeekStart = new Date(today);
+    currentWeekStart.setDate(today.getDate() - today.getDay()); // Start of current week (Sunday)
+    
+    // Create header row
+    const headerRow = {
+      'Players': 'Players',
+      'Deposit': 'Deposit',
+      'Balance Brought Forward': 'Balance Brought Forward',
+      'Monday': 'Monday',
+      'Tuesday': 'Tuesday', 
+      'Wednesday': 'Wednesday',
+      'Thursday': 'Thursday',
+      'Friday': 'Friday',
+      'Saturday': 'Saturday',
+      'Sunday': 'Sunday',
+      'Other Expenses Shortfall': 'Other Expenses/Shortfall',
+      'Balance @ End of Week': 'Balance @ End of Week'
+    };
+    weeklyData.push(headerRow);
+
+    // Add week dates as second row
+    const weekDates = ['Week Dates', '', ''];
+    for (let i = 1; i <= 7; i++) {
+      const date = new Date(currentWeekStart);
+      date.setDate(currentWeekStart.getDate() + i);
+      weekDates.push(date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }));
+    }
+    weekDates.push('', '');
+    
+    const weekDatesRow = {
+      'Players': 'Week Dates',
+      'Deposit': '',
+      'Balance Brought Forward': '',
+      'Monday': weekDates[3],
+      'Tuesday': weekDates[4],
+      'Wednesday': weekDates[5], 
+      'Thursday': weekDates[6],
+      'Friday': weekDates[7],
+      'Saturday': weekDates[8],
+      'Sunday': weekDates[9],
+      'Other Expenses Shortfall': '',
+      'Balance @ End of Week': ''
+    };
+    weeklyData.push(weekDatesRow);
+
+    // Add player data rows
+    playersList.forEach(player => {
+      const deposit = deposits[player] || 0;
+      const playerExpenses = expenses[player] || [];
+      const balance = getPlayerBalance(player);
+      
+      // Calculate daily expenses for current week
+      const dailyExpenses = {
+        Monday: 0,
+        Tuesday: 0,
+        Wednesday: 0,
+        Thursday: 0,
+        Friday: 0,
+        Saturday: 0,
+        Sunday: 0
+      };
+
+      playerExpenses.forEach(expense => {
+        const expenseDate = new Date(expense.date);
+        const dayName = expenseDate.toLocaleDateString('en-US', { weekday: 'long' });
+        
+        // Check if expense is in current week
+        const weekStart = new Date(currentWeekStart);
+        const weekEnd = new Date(currentWeekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        
+        if (expenseDate >= weekStart && expenseDate <= weekEnd) {
+          if (dailyExpenses.hasOwnProperty(dayName)) {
+            dailyExpenses[dayName] += parseFloat(expense.amount);
+          }
+        }
+      });
+
+      const playerRow = {
+        'Players': player,
+        'Deposit': deposit > 0 ? `£${deposit.toFixed(2)}` : '',
+        'Balance Brought Forward': balance >= 0 ? `£${balance.toFixed(2)}` : `£${balance.toFixed(2)}`,
+        'Monday': dailyExpenses.Monday > 0 ? `£${dailyExpenses.Monday.toFixed(2)}` : '',
+        'Tuesday': dailyExpenses.Tuesday > 0 ? `£${dailyExpenses.Tuesday.toFixed(2)}` : '',
+        'Wednesday': dailyExpenses.Wednesday > 0 ? `£${dailyExpenses.Wednesday.toFixed(2)}` : '',
+        'Thursday': dailyExpenses.Thursday > 0 ? `£${dailyExpenses.Thursday.toFixed(2)}` : '',
+        'Friday': dailyExpenses.Friday > 0 ? `£${dailyExpenses.Friday.toFixed(2)}` : '',
+        'Saturday': dailyExpenses.Saturday > 0 ? `£${dailyExpenses.Saturday.toFixed(2)}` : '',
+        'Sunday': dailyExpenses.Sunday > 0 ? `£${dailyExpenses.Sunday.toFixed(2)}` : '',
+        'Other Expenses Shortfall': '',
+        'Balance @ End of Week': balance >= 0 ? `£${balance.toFixed(2)}` : `£${balance.toFixed(2)}`
+      };
+      
+      weeklyData.push(playerRow);
+    });
+
+    // Create worksheet for weekly tracker
+    const weeklyWorksheet = XLSX.utils.json_to_sheet(weeklyData);
+    
+    // Set column widths
+    weeklyWorksheet['!cols'] = [
+      { wch: 12 }, // Players
+      { wch: 10 }, // Deposit
+      { wch: 18 }, // Balance Brought Forward
+      { wch: 10 }, // Monday
+      { wch: 10 }, // Tuesday
+      { wch: 12 }, // Wednesday
+      { wch: 10 }, // Thursday
+      { wch: 10 }, // Friday
+      { wch: 10 }, // Saturday
+      { wch: 10 }, // Sunday
+      { wch: 18 }, // Other Expenses
+      { wch: 16 }  // Balance @ End of Week
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, weeklyWorksheet, 'Weekly Tracker');
+
+    // Sheet 2: Detailed Player Stats (original format)
+    const detailedData = playersList.map(player => {
       const playerRatings = ratings[player] || {};
       const playerExpenses = expenses[player] || [];
       const totalExpenses = playerExpenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
@@ -287,15 +413,42 @@ const TrainingTracker = () => {
       return row;
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Player Stats');
+    const detailedWorksheet = XLSX.utils.json_to_sheet(detailedData);
+    detailedWorksheet['!cols'] = Array(Object.keys(detailedData[0] || {}).length).fill({ wch: 15 });
+    XLSX.utils.book_append_sheet(workbook, detailedWorksheet, 'Player Stats');
 
-    // Auto-size columns
-    const maxWidth = exportData.reduce((w, r) => Math.max(w, Object.keys(r).length), 10);
-    worksheet['!cols'] = Array(maxWidth).fill({ wch: 15 });
+    // Sheet 3: Expense Details
+    const expenseDetails = [];
+    playersList.forEach(player => {
+      const playerExpenses = expenses[player] || [];
+      playerExpenses.forEach(expense => {
+        expenseDetails.push({
+          'Player': player,
+          'Date': expense.date,
+          'Amount': parseFloat(expense.amount).toFixed(2),
+          'Description': expense.description || 'No description',
+          'Day of Week': new Date(expense.date).toLocaleDateString('en-US', { weekday: 'long' })
+        });
+      });
+    });
 
-    XLSX.writeFile(workbook, `Badminton_Club_Stats_${new Date().toISOString().split('T')[0]}.xlsx`);
+    if (expenseDetails.length > 0) {
+      const expenseWorksheet = XLSX.utils.json_to_sheet(expenseDetails);
+      expenseWorksheet['!cols'] = [
+        { wch: 15 }, // Player
+        { wch: 12 }, // Date
+        { wch: 10 }, // Amount
+        { wch: 25 }, // Description
+        { wch: 12 }  // Day of Week
+      ];
+      XLSX.utils.book_append_sheet(workbook, expenseWorksheet, 'Expense Details');
+    }
+
+    // Generate filename with current week
+    const weekStartStr = currentWeekStart.toISOString().split('T')[0];
+    const filename = `Badminton_Club_Weekly_Tracker_${weekStartStr}.xlsx`;
+    
+    XLSX.writeFile(workbook, filename);
   };
 
   const updateRating = async (player, category, skill, value) => {
