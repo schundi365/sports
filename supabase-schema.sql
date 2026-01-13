@@ -1,87 +1,5 @@
 -- ============================================
--- Badminton Club Tracker
--- Database Schema for Supabase
--- ============================================
-
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- ============================================
--- TABLES
--- ============================================
-
--- Players table
-CREATE TABLE IF NOT EXISTS players (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  created_by UUID REFERENCES auth.users(id),
-  UNIQUE(name)
-);
-
--- Skill ratings table
-CREATE TABLE IF NOT EXISTS skill_ratings (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-  category TEXT NOT NULL, -- 'singles', 'doubles', 'service', 'fitness'
-  skill_name TEXT NOT NULL, -- e.g., 'footwork', 'smash', 'stamina', etc.
-  rating INTEGER CHECK (rating >= 0 AND rating <= 10),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_by UUID REFERENCES auth.users(id),
-  UNIQUE(player_id, category, skill_name)
-);
-
--- Training sessions data table
-CREATE TABLE IF NOT EXISTS training_sessions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-  sessions_attended INTEGER DEFAULT 0,
-  works_on_technique TEXT DEFAULT 'No', -- 'Yes', 'No', 'Sometimes', 'Always'
-  points_scored INTEGER DEFAULT 0,
-  points_conceded INTEGER DEFAULT 0,
-  matches_played INTEGER DEFAULT 0,
-  matches_won INTEGER DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_by UUID REFERENCES auth.users(id),
-  UNIQUE(player_id)
-);
-
--- Expenses table
-CREATE TABLE IF NOT EXISTS expenses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-  amount DECIMAL(10,2) NOT NULL,
-  description TEXT,
-  date DATE DEFAULT CURRENT_DATE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  created_by UUID REFERENCES auth.users(id)
-);
-
--- User profiles table (extends auth.users)
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username TEXT UNIQUE,
-  full_name TEXT,
-  role TEXT DEFAULT 'viewer', -- 'admin', 'coach', 'viewer'
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- ============================================
--- INDEXES for performance
--- ============================================
-
-CREATE INDEX IF NOT EXISTS idx_players_name ON players(name);
-CREATE INDEX IF NOT EXISTS idx_skill_ratings_player_id ON skill_ratings(player_id);
-CREATE INDEX IF NOT EXISTS idx_training_sessions_player_id ON training_sessions(player_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_player_id ON expenses(player_id);
-CREATE INDEX IF NOT EXISTS idx_profiles_username ON profiles(username);
-
--- ============================================
--- ROW LEVEL SECURITY (RLS) POLICIES
+-- ROW LEVEL SECURITY (RLS) POLICIES (DROP + CREATE)
 -- ============================================
 
 -- Enable RLS on all tables
@@ -89,156 +7,137 @@ ALTER TABLE players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE skill_ratings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE training_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deposits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
+-- ======================
 -- Players policies
--- Anyone authenticated can read players
+-- ======================
+
+DROP POLICY IF EXISTS "Anyone can view players" ON public.players;
 CREATE POLICY "Anyone can view players"
-  ON players FOR SELECT
+  ON public.players FOR SELECT
   TO authenticated
   USING (true);
 
--- Anyone authenticated can insert players
+DROP POLICY IF EXISTS "Anyone can add players" ON public.players;
 CREATE POLICY "Anyone can add players"
-  ON players FOR INSERT
+  ON public.players FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
--- Anyone authenticated can update players
+DROP POLICY IF EXISTS "Anyone can update players" ON public.players;
 CREATE POLICY "Anyone can update players"
-  ON players FOR UPDATE
+  ON public.players FOR UPDATE
   TO authenticated
   USING (true);
 
+-- ======================
 -- Skill ratings policies
--- Anyone authenticated can read skill ratings
+-- ======================
+
+DROP POLICY IF EXISTS "Anyone can view skill ratings" ON public.skill_ratings;
 CREATE POLICY "Anyone can view skill ratings"
-  ON skill_ratings FOR SELECT
+  ON public.skill_ratings FOR SELECT
   TO authenticated
   USING (true);
 
--- Anyone authenticated can insert skill ratings
+DROP POLICY IF EXISTS "Anyone can add skill ratings" ON public.skill_ratings;
 CREATE POLICY "Anyone can add skill ratings"
-  ON skill_ratings FOR INSERT
+  ON public.skill_ratings FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
--- Anyone authenticated can update skill ratings
+DROP POLICY IF EXISTS "Anyone can update skill ratings" ON public.skill_ratings;
 CREATE POLICY "Anyone can update skill ratings"
-  ON skill_ratings FOR UPDATE
+  ON public.skill_ratings FOR UPDATE
   TO authenticated
   USING (true);
 
+-- ======================
 -- Training sessions policies
--- Anyone authenticated can read training sessions
+-- ======================
+
+DROP POLICY IF EXISTS "Anyone can view training sessions" ON public.training_sessions;
 CREATE POLICY "Anyone can view training sessions"
-  ON training_sessions FOR SELECT
+  ON public.training_sessions FOR SELECT
   TO authenticated
   USING (true);
 
--- Anyone authenticated can insert training sessions
+DROP POLICY IF EXISTS "Anyone can add training sessions" ON public.training_sessions;
 CREATE POLICY "Anyone can add training sessions"
-  ON training_sessions FOR INSERT
+  ON public.training_sessions FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
--- Anyone authenticated can update training sessions
+DROP POLICY IF EXISTS "Anyone can update training sessions" ON public.training_sessions;
 CREATE POLICY "Anyone can update training sessions"
-  ON training_sessions FOR UPDATE
+  ON public.training_sessions FOR UPDATE
   TO authenticated
   USING (true);
 
+-- ======================
 -- Expenses policies
--- Anyone authenticated can read expenses
+-- ======================
+
+DROP POLICY IF EXISTS "Anyone can view expenses" ON public.expenses;
 CREATE POLICY "Anyone can view expenses"
-  ON expenses FOR SELECT
+  ON public.expenses FOR SELECT
   TO authenticated
   USING (true);
 
--- Anyone authenticated can insert expenses
+DROP POLICY IF EXISTS "Anyone can add expenses" ON public.expenses;
 CREATE POLICY "Anyone can add expenses"
-  ON expenses FOR INSERT
+  ON public.expenses FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
--- Anyone authenticated can update expenses
+DROP POLICY IF EXISTS "Anyone can update expenses" ON public.expenses;
 CREATE POLICY "Anyone can update expenses"
-  ON expenses FOR UPDATE
+  ON public.expenses FOR UPDATE
   TO authenticated
   USING (true);
 
--- Anyone authenticated can delete expenses
+DROP POLICY IF EXISTS "Anyone can delete expenses" ON public.expenses;
 CREATE POLICY "Anyone can delete expenses"
-  ON expenses FOR DELETE
+  ON public.expenses FOR DELETE
   TO authenticated
   USING (true);
 
+-- ======================
+-- Deposits policies
+-- ======================
+
+DROP POLICY IF EXISTS "Anyone can view deposits" ON public.deposits;
+CREATE POLICY "Anyone can view deposits"
+  ON public.deposits FOR SELECT
+  TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "Anyone can add deposits" ON public.deposits;
+CREATE POLICY "Anyone can add deposits"
+  ON public.deposits FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can update deposits" ON public.deposits;
+CREATE POLICY "Anyone can update deposits"
+  ON public.deposits FOR UPDATE
+  TO authenticated
+  USING (true);
+
+-- ======================
 -- Profiles policies
--- Users can view all profiles
+-- ======================
+
+DROP POLICY IF EXISTS "Anyone can view profiles" ON public.profiles;
 CREATE POLICY "Anyone can view profiles"
-  ON profiles FOR SELECT
+  ON public.profiles FOR SELECT
   TO authenticated
   USING (true);
 
--- Users can update their own profile
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile"
-  ON profiles FOR UPDATE
+  ON public.profiles FOR UPDATE
   TO authenticated
-  USING (auth.uid() = id);
-
--- ============================================
--- FUNCTIONS
--- ============================================
-
--- Function to automatically create a profile when a new user signs up
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, username, full_name)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email)
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Trigger to create profile on user signup
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- Function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Triggers to automatically update updated_at
-CREATE TRIGGER update_players_updated_at BEFORE UPDATE ON players
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_skill_ratings_updated_at BEFORE UPDATE ON skill_ratings
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_training_sessions_updated_at BEFORE UPDATE ON training_sessions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- ============================================
--- SAMPLE DATA (Optional - for testing)
--- ============================================
-
--- Insert some sample players (uncomment if needed)
--- INSERT INTO players (name) VALUES
---   ('Alice Chen'),
---   ('Bob Kumar'),
---   ('Carol Singh')
--- ON CONFLICT (name) DO NOTHING;
+  USING ((SELECT auth.uid()) = id);

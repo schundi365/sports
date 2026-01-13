@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Award, Users, Calendar, UserPlus, Download, LogOut, Loader, AlertCircle, DollarSign } from 'lucide-react';
+import { Search, Award, Users, UserPlus, Download, LogOut, Loader, AlertCircle, DollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import Auth from './Auth';
@@ -7,8 +7,7 @@ import Auth from './Auth';
 const TrainingTracker = () => {
   // Initial hardcoded players list for seeding
   const initialPlayers = [
-    "John Smith", "Sarah Johnson", "Michael Chen", "Emily Davis", "David Williams",
-    "Lisa Anderson", "James Brown", "Emma Martinez", "Robert Wilson", "Maria Garcia"
+    "Rahul P", "Srikanth", "Vinay", "Saiteja", "Avinash", "Yash", "Bhargav", "Sai Anurag"
   ];
 
   const skillCategories = [
@@ -27,7 +26,6 @@ const TrainingTracker = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [ratings, setRatings] = useState({});
-  const [trainingSessions, setTrainingSessions] = useState({});
   const [view, setView] = useState('list');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
@@ -42,6 +40,12 @@ const TrainingTracker = () => {
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseDescription, setExpenseDescription] = useState('');
   const [expenseDate, setExpenseDate] = useState('');
+
+  // Deposits state
+  const [deposits, setDeposits] = useState({});
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depositPlayer, setDepositPlayer] = useState('');
+  const [depositAmount, setDepositAmount] = useState('');
 
   // Check Supabase configuration and auth state on mount
   useEffect(() => {
@@ -119,28 +123,6 @@ const TrainingTracker = () => {
       });
       setRatings(ratingsObj);
 
-      // Load training sessions data
-      const { data: trainingData, error: trainingError } = await supabase
-        .from('training_sessions')
-        .select('*, players(name)');
-
-      if (trainingError) throw trainingError;
-
-      // Transform training sessions data
-      const trainingObj = {};
-      trainingData.forEach(session => {
-        const playerName = session.players.name;
-        trainingObj[playerName] = {
-          sessionsAttended: session.sessions_attended,
-          worksOnTechnique: session.works_on_technique,
-          pointsScored: session.points_scored,
-          pointsConceded: session.points_conceded,
-          matchesPlayed: session.matches_played,
-          matchesWon: session.matches_won
-        };
-      });
-      setTrainingSessions(trainingObj);
-
       // Load expenses
       const { data: expensesData, error: expensesError } = await supabase
         .from('expenses')
@@ -164,6 +146,22 @@ const TrainingTracker = () => {
         });
       });
       setExpenses(expensesObj);
+
+      // Load deposits
+      const { data: depositsData, error: depositsError } = await supabase
+        .from('deposits')
+        .select('*, players(name)')
+        .order('created_at', { ascending: false });
+
+      if (depositsError) throw depositsError;
+
+      // Transform deposits data
+      const depositsObj = {};
+      depositsData.forEach(deposit => {
+        const playerName = deposit.players.name;
+        depositsObj[playerName] = deposit.amount;
+      });
+      setDeposits(depositsObj);
 
     } catch (err) {
       console.error('Error loading data:', err);
@@ -243,17 +241,19 @@ const TrainingTracker = () => {
   const downloadExcel = () => {
     const exportData = playersList.map(player => {
       const playerRatings = ratings[player] || {};
-      const playerTraining = trainingSessions[player] || {};
+      const playerExpenses = expenses[player] || [];
+      const totalExpenses = playerExpenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
+      const deposit = deposits[player] || 0;
+      const balance = getPlayerBalance(player);
 
       const row = {
         'Player Name': player,
         'Skills Average': getPlayerAverage(player),
-        'Sessions Attended': playerTraining.sessionsAttended || 0,
-        'Works on Technique': playerTraining.worksOnTechnique || 'No',
-        'Points Scored': playerTraining.pointsScored || 0,
-        'Points Conceded': playerTraining.pointsConceded || 0,
-        'Matches Played': playerTraining.matchesPlayed || 0,
-        'Matches Won': playerTraining.matchesWon || 0,
+        'Deposit': deposit.toFixed(2),
+        'Total Expenses': totalExpenses.toFixed(2),
+        'Balance': balance.toFixed(2),
+        'Number of Expenses': playerExpenses.length,
+        'Average Expense': playerExpenses.length > 0 ? (totalExpenses / playerExpenses.length).toFixed(2) : '0.00',
       };
 
       // Add all skill ratings
@@ -263,16 +263,6 @@ const TrainingTracker = () => {
           row[`${category.name} - ${skill}`] = playerRatings[key] || 0;
         });
       });
-
-      // Add calculated stats
-      if (playerTraining.sessionsAttended > 0) {
-        if (playerTraining.pointsScored > 0) {
-          row['Points per Session'] = (playerTraining.pointsScored / playerTraining.sessionsAttended).toFixed(1);
-        }
-        if (playerTraining.matchesPlayed > 0) {
-          row['Win Rate (%)'] = ((playerTraining.matchesWon / playerTraining.matchesPlayed) * 100).toFixed(1);
-        }
-      }
 
       return row;
     });
@@ -323,48 +313,6 @@ const TrainingTracker = () => {
     }
   };
 
-  const updateTrainingSessions = async (player, field, value) => {
-    // Update local state immediately
-    setTrainingSessions(prev => ({
-      ...prev,
-      [player]: {
-        ...prev[player],
-        [field]: value
-      }
-    }));
-
-    // Save to database if configured
-    if (dbConfigured && user) {
-      try {
-        const playerId = await getPlayerId(player);
-
-        // Get current training data for this player
-        const currentData = trainingSessions[player] || {};
-        const updatedData = { ...currentData, [field]: value };
-
-        const { error } = await supabase
-          .from('training_sessions')
-          .upsert({
-            player_id: playerId,
-            sessions_attended: updatedData.sessionsAttended || 0,
-            works_on_technique: updatedData.worksOnTechnique || 'No',
-            points_scored: updatedData.pointsScored || 0,
-            points_conceded: updatedData.pointsConceded || 0,
-            matches_played: updatedData.matchesPlayed || 0,
-            matches_won: updatedData.matchesWon || 0,
-            updated_by: user.id
-          }, {
-            onConflict: 'player_id'
-          });
-
-        if (error) throw error;
-      } catch (err) {
-        console.error('Error updating training sessions:', err);
-        setError('Failed to save training data to database');
-      }
-    }
-  };
-
   const getPlayerAverage = (player) => {
     const playerRatings = ratings[player] || {};
     const values = Object.values(playerRatings).filter(v => v > 0);
@@ -376,22 +324,30 @@ const TrainingTracker = () => {
     return playersList
       .map(player => ({
         name: player,
-        avg: parseFloat(getPlayerAverage(player)),
-        sessionsAttended: trainingSessions[player]?.sessionsAttended || 0
+        avg: parseFloat(getPlayerAverage(player))
       }))
       .filter(p => p.avg > 0)
       .sort((a, b) => b.avg - a.avg)
       .slice(0, 5);
   };
 
-  const getBestAttendance = () => {
+  const getTopExpenses = () => {
     return playersList
-      .map(player => ({
-        name: player,
-        attendance: trainingSessions[player]?.sessionsAttended || 0
-      }))
-      .filter(p => p.attendance > 0)
-      .sort((a, b) => b.attendance - a.attendance)
+      .map(player => {
+        const playerExpenses = expenses[player] || [];
+        const totalExpenses = playerExpenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
+        const deposit = deposits[player] || 0;
+        const balance = getPlayerBalance(player);
+        return {
+          name: player,
+          totalExpenses: totalExpenses,
+          expenseCount: playerExpenses.length,
+          deposit: deposit,
+          balance: balance
+        };
+      })
+      .filter(p => p.totalExpenses > 0 || p.deposit > 0)
+      .sort((a, b) => b.totalExpenses - a.totalExpenses)
       .slice(0, 5);
   };
 
@@ -401,7 +357,6 @@ const TrainingTracker = () => {
     }
     setUser(null);
     setRatings({});
-    setTrainingSessions({});
     setPlayersList(initialPlayers);
   };
 
@@ -520,6 +475,62 @@ const TrainingTracker = () => {
     return Object.values(expenses).reduce((total, playerExpenses) => {
       return total + playerExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
     }, 0);
+  };
+
+  // Deposit management functions
+  const openDepositModal = (player = '') => {
+    setDepositPlayer(player);
+    setDepositAmount('');
+    setShowDepositModal(true);
+  };
+
+  const closeDepositModal = () => {
+    setShowDepositModal(false);
+    setDepositPlayer('');
+    setDepositAmount('');
+  };
+
+  const addDeposit = async () => {
+    if (!depositPlayer || !depositAmount) return;
+
+    const amount = parseFloat(depositAmount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    // Update local state immediately
+    setDeposits(prev => ({
+      ...prev,
+      [depositPlayer]: amount
+    }));
+
+    // Save to database if configured
+    if (dbConfigured && user) {
+      try {
+        const playerId = await getPlayerId(depositPlayer);
+
+        const { error } = await supabase
+          .from('deposits')
+          .upsert({
+            player_id: playerId,
+            amount: amount,
+            updated_by: user.id
+          }, {
+            onConflict: 'player_id'
+          });
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error adding deposit:', err);
+        setError('Failed to save deposit to database');
+      }
+    }
+
+    closeDepositModal();
+  };
+
+  const getPlayerBalance = (player) => {
+    const deposit = deposits[player] || 0;
+    const totalExpenses = getPlayerExpenseTotal(player);
+    return deposit - totalExpenses;
   };
 
   // Show loading screen
@@ -754,6 +765,55 @@ const TrainingTracker = () => {
           </div>
         )}
 
+        {/* Add Deposit Modal */}
+        {showDepositModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Set Deposit</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Player</label>
+                  <select
+                    value={depositPlayer}
+                    onChange={(e) => setDepositPlayer(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="">Select a player</option>
+                    {playersList.map(player => (
+                      <option key={player} value={player}>{player}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Deposit Amount ($)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 mt-6">
+                <button
+                  onClick={addDeposit}
+                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-medium"
+                >
+                  Set Deposit
+                </button>
+                <button
+                  onClick={closeDepositModal}
+                  className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Leaderboard View */}
         {view === 'leaderboard' && (
           <div className="space-y-6">
@@ -785,23 +845,31 @@ const TrainingTracker = () => {
 
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                <Calendar className="text-blue-500" />
-                Best Attendance
+                <DollarSign className="text-red-500" />
+                Financial Overview
               </h2>
               <div className="space-y-3">
-                {getBestAttendance().map((player, index) => (
-                  <div key={player.name} className="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg">
-                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-white">
+                {getTopExpenses().map((player, index) => (
+                  <div key={player.name} className="flex items-center gap-4 p-4 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg">
+                    <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center font-bold text-white">
                       {index + 1}
                     </div>
                     <div className="flex-1">
                       <p className="font-semibold">{player.name}</p>
+                      <p className="text-sm text-gray-600">
+                        Deposit: ${player.deposit.toFixed(2)} | {player.expenseCount} expenses
+                      </p>
                     </div>
-                    <div className="text-2xl font-bold text-blue-700">{player.attendance}</div>
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-red-700">${player.totalExpenses.toFixed(2)}</div>
+                      <div className={`text-sm font-medium ${player.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        Balance: ${player.balance.toFixed(2)}
+                      </div>
+                    </div>
                   </div>
                 ))}
-                {getBestAttendance().length === 0 && (
-                  <p className="text-gray-500 text-center py-8">No attendance recorded yet.</p>
+                {getTopExpenses().length === 0 && (
+                  <p className="text-gray-500 text-center py-8">No financial data recorded yet.</p>
                 )}
               </div>
             </div>
@@ -925,8 +993,11 @@ const TrainingTracker = () => {
             <h2 className="text-xl font-bold mb-4">Select a Player ({filteredPlayers.length})</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
               {filteredPlayers.map(player => {
-                const playerTrainingData = trainingSessions[player] || {};
-                const attendance = playerTrainingData.sessionsAttended || 0;
+                const playerExpenses = expenses[player] || [];
+                const totalExpenses = playerExpenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
+                const expenseCount = playerExpenses.length;
+                const deposit = deposits[player] || 0;
+                const balance = getPlayerBalance(player);
 
                 return (
                   <button
@@ -942,9 +1013,19 @@ const TrainingTracker = () => {
                             {getPlayerAverage(player)}
                           </span>
                         )}
-                        {attendance > 0 && (
+                        {deposit > 0 && (
+                          <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs">
+                            Deposit: ${deposit.toFixed(2)}
+                          </span>
+                        )}
+                        {(deposit > 0 || totalExpenses > 0) && (
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            Balance: ${balance.toFixed(2)}
+                          </span>
+                        )}
+                        {expenseCount > 0 && (
                           <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs">
-                            {attendance} sessions
+                            {expenseCount} expenses
                           </span>
                         )}
                       </div>
@@ -970,7 +1051,7 @@ const TrainingTracker = () => {
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800">{selectedPlayer}</h2>
-                  <p className="text-gray-600">Training Performance Tracker</p>
+                  <p className="text-gray-600">Player Profile & Expense Summary</p>
                 </div>
                 <div className="text-center">
                   <div className="text-4xl font-bold text-green-600">{getPlayerAverage(selectedPlayer)}</div>
@@ -978,129 +1059,119 @@ const TrainingTracker = () => {
                 </div>
               </div>
 
-              {/* Training Session Data */}
+              {/* Player Financial Summary */}
               <div className="mb-8 p-6 bg-blue-50 rounded-lg">
-                <h3 className="text-lg font-bold text-gray-700 mb-4">Training Session Statistics</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Sessions Attended
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={trainingSessions[selectedPlayer]?.sessionsAttended || ''}
-                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'sessionsAttended', parseInt(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Works on Technique
-                    </label>
-                    <select
-                      value={trainingSessions[selectedPlayer]?.worksOnTechnique || 'No'}
-                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'worksOnTechnique', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-gray-700">Financial Summary</h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => openDepositModal(selectedPlayer)}
+                      className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
                     >
-                      <option value="No">No</option>
-                      <option value="Sometimes">Sometimes</option>
-                      <option value="Yes">Yes</option>
-                      <option value="Always">Always</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Points Scored
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={trainingSessions[selectedPlayer]?.pointsScored || ''}
-                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'pointsScored', parseInt(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Points Conceded
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={trainingSessions[selectedPlayer]?.pointsConceded || ''}
-                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'pointsConceded', parseInt(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Matches Played
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={trainingSessions[selectedPlayer]?.matchesPlayed || ''}
-                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'matchesPlayed', parseInt(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Matches Won
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={trainingSessions[selectedPlayer]?.matchesWon || ''}
-                      onChange={(e) => updateTrainingSessions(selectedPlayer, 'matchesWon', parseInt(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="0"
-                    />
+                      Set Deposit
+                    </button>
+                    <button
+                      onClick={() => openExpenseModal(selectedPlayer)}
+                      className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                    >
+                      Add Expense
+                    </button>
                   </div>
                 </div>
+                {(() => {
+                  const playerExpenses = expenses[selectedPlayer] || [];
+                  const totalExpenses = playerExpenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
+                  const expenseCount = playerExpenses.length;
+                  const avgExpense = expenseCount > 0 ? totalExpenses / expenseCount : 0;
+                  const deposit = deposits[selectedPlayer] || 0;
+                  const balance = getPlayerBalance(selectedPlayer);
+                  const recentExpenses = playerExpenses.slice(0, 3); // Show last 3 expenses
 
-                {/* Stats Summary */}
-                {trainingSessions[selectedPlayer]?.sessionsAttended > 0 && (
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {trainingSessions[selectedPlayer]?.pointsScored > 0 && (
-                      <div className="bg-white p-3 rounded-lg text-center">
-                        <div className="text-sm text-gray-600">Points/Session</div>
-                        <div className="text-lg font-bold text-green-600">
-                          {(trainingSessions[selectedPlayer].pointsScored / trainingSessions[selectedPlayer].sessionsAttended).toFixed(1)}
+                  return (
+                    <div>
+                      {/* Summary Stats */}
+                      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+                        <div className="bg-white p-4 rounded-lg text-center">
+                          <div className="text-sm text-gray-600">Deposit</div>
+                          <div className="text-2xl font-bold text-green-600">
+                            ${deposit.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="bg-white p-4 rounded-lg text-center">
+                          <div className="text-sm text-gray-600">Total Expenses</div>
+                          <div className="text-2xl font-bold text-red-600">
+                            ${totalExpenses.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="bg-white p-4 rounded-lg text-center">
+                          <div className="text-sm text-gray-600">Balance</div>
+                          <div className={`text-2xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${balance.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="bg-white p-4 rounded-lg text-center">
+                          <div className="text-sm text-gray-600">Number of Expenses</div>
+                          <div className="text-2xl font-bold text-blue-600">
+                            {expenseCount}
+                          </div>
+                        </div>
+                        <div className="bg-white p-4 rounded-lg text-center">
+                          <div className="text-sm text-gray-600">Average Expense</div>
+                          <div className="text-2xl font-bold text-purple-600">
+                            ${avgExpense.toFixed(2)}
+                          </div>
                         </div>
                       </div>
-                    )}
-                    {trainingSessions[selectedPlayer]?.matchesPlayed > 0 && (
-                      <div className="bg-white p-3 rounded-lg text-center">
-                        <div className="text-sm text-gray-600">Win Rate</div>
-                        <div className="text-lg font-bold text-blue-600">
-                          {((trainingSessions[selectedPlayer].matchesWon / trainingSessions[selectedPlayer].matchesPlayed) * 100).toFixed(1)}%
+
+                      {/* Recent Expenses */}
+                      {recentExpenses.length > 0 && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-700 mb-3">Recent Expenses</h4>
+                          <div className="space-y-2">
+                            {recentExpenses.map((expense, index) => (
+                              <div key={expense.id || index} className="bg-white p-3 rounded-lg flex justify-between items-center">
+                                <div>
+                                  <div className="font-medium text-gray-800">
+                                    {expense.description || 'No description'}
+                                  </div>
+                                  <div className="text-sm text-gray-500">
+                                    {new Date(expense.date).toLocaleDateString()}
+                                  </div>
+                                </div>
+                                <div className="text-lg font-bold text-red-600">
+                                  ${parseFloat(expense.amount).toFixed(2)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {expenseCount > 3 && (
+                            <div className="mt-3 text-center">
+                              <button
+                                onClick={() => setView('expenses')}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                              >
+                                View all {expenseCount} expenses →
+                              </button>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
-                    {trainingSessions[selectedPlayer]?.pointsScored > 0 && trainingSessions[selectedPlayer]?.pointsConceded > 0 && (
-                      <div className="bg-white p-3 rounded-lg text-center">
-                        <div className="text-sm text-gray-600">Point Differential</div>
-                        <div className={`text-lg font-bold ${(trainingSessions[selectedPlayer].pointsScored - trainingSessions[selectedPlayer].pointsConceded) > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {(trainingSessions[selectedPlayer].pointsScored - trainingSessions[selectedPlayer].pointsConceded)}
+                      )}
+
+                      {/* No expenses message */}
+                      {expenseCount === 0 && (
+                        <div className="text-center py-8">
+                          <div className="text-gray-500 mb-4">No expenses recorded for this player</div>
+                          <button
+                            onClick={() => openExpenseModal(selectedPlayer)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                          >
+                            Add First Expense
+                          </button>
                         </div>
-                      </div>
-                    )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Skills Rating */}

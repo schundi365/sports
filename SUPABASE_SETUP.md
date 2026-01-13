@@ -53,7 +53,7 @@ This guide will help you set up Supabase for the Badminton Club Tracker to enabl
 5. Click "Run" to execute the SQL
 
 This will create:
-- **Tables**: players, skill_ratings, nets_data, profiles
+- **Tables**: players, skill_ratings, training_sessions, expenses, deposits, profiles
 - **Row Level Security policies**: Allows authenticated users to read/write data
 - **Triggers**: Auto-update timestamps and create user profiles
 - **Indexes**: For improved query performance
@@ -89,7 +89,9 @@ This will create:
 6. After logging in, you should be able to:
    - Add players
    - Rate players on skills
-   - Track nets session data
+   - Set player deposits
+   - Add player expenses
+   - View financial balances
    - View leaderboards
    - All data will persist across sessions
 
@@ -104,11 +106,20 @@ This will create:
 #### `skill_ratings`
 - Stores individual skill ratings for each player
 - Columns: id, player_id, category, skill_name, rating (0-10), timestamps
-- Categories: batting, bowling, fielding, fitness
+- Categories: Singles, Doubles, Service, Fitness
 
-#### `nets_data`
-- Stores nets session statistics
-- Columns: id, player_id, present_in_nets, works_on_technique, times_got_out, wickets_taken, bowling_extras, timestamps
+#### `training_sessions`
+- Stores training session statistics
+- Columns: id, player_id, sessions_attended, works_on_technique, points_scored, points_conceded, matches_played, matches_won, timestamps
+
+#### `expenses`
+- Stores player expenses
+- Columns: id, player_id, amount, description, date, created_at, created_by
+
+#### `deposits`
+- Stores player deposits
+- Columns: id, player_id, amount, created_at, updated_at, updated_by
+- One deposit per player (unique constraint on player_id)
 
 #### `profiles`
 - Extends auth.users with additional user information
@@ -120,7 +131,9 @@ All authenticated users can:
 - Read all data
 - Create new players
 - Update skill ratings
-- Update nets data
+- Update training session data
+- Add/update/delete expenses
+- Set/update deposits
 - View other users' profiles
 - Update their own profile
 
