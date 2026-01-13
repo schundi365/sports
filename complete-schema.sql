@@ -155,24 +155,37 @@ CREATE POLICY "Anyone can update expenses" ON expenses FOR UPDATE TO authenticat
 CREATE POLICY "Anyone can delete expenses" ON expenses FOR DELETE TO authenticated USING (true);
 
 -- Deposits policies
+DROP POLICY IF EXISTS "Anyone can view deposits" ON public.deposits;
 CREATE POLICY "Anyone can view deposits" ON deposits FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Anyone can add deposits" ON public.deposits;
 CREATE POLICY "Anyone can add deposits" ON deposits FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "Anyone can update deposits" ON public.deposits;
 CREATE POLICY "Anyone can update deposits" ON deposits FOR UPDATE TO authenticated USING (true);
 
 -- Voting sessions policies
+DROP POLICY IF EXISTS "Anyone can view voting sessions" ON public.voting_sessions;
 CREATE POLICY "Anyone can view voting sessions" ON voting_sessions FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Anyone can add voting sessions" ON public.voting_sessions;
 CREATE POLICY "Anyone can add voting sessions" ON voting_sessions FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "Anyone can update voting sessions" ON public.voting_sessions;
 CREATE POLICY "Anyone can update voting sessions" ON voting_sessions FOR UPDATE TO authenticated USING (true);
+DROP POLICY IF EXISTS "Anyone can delete voting sessions" ON public.voting_sessions;
 CREATE POLICY "Anyone can delete voting sessions" ON voting_sessions FOR DELETE TO authenticated USING (true);
 
 -- Player votes policies
+DROP POLICY IF EXISTS "Anyone can view votes" ON public.player_votes;
 CREATE POLICY "Anyone can view votes" ON player_votes FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Anyone can add votes" ON public.player_votes;
 CREATE POLICY "Anyone can add votes" ON player_votes FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "Anyone can update votes" ON public.player_votes;
 CREATE POLICY "Anyone can update votes" ON player_votes FOR UPDATE TO authenticated USING (true);
+DROP POLICY IF EXISTS "Anyone can delete votes" ON public.player_votes;
 CREATE POLICY "Anyone can delete votes" ON player_votes FOR DELETE TO authenticated USING (true);
 
 -- Profiles policies
+DROP POLICY IF EXISTS "Anyone can view profiles" ON public.profiles;
 CREATE POLICY "Anyone can view profiles" ON profiles FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
 
 -- ============================================
