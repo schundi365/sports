@@ -56,6 +56,17 @@ const TrainingTracker = () => {
   // Games played state (for expense statement)
   const [gamesPlayed, setGamesPlayed] = useState({});
 
+  // Voting system state
+  const [votingSessions, setVotingSessions] = useState([]);
+  const [playerVotes, setPlayerVotes] = useState({});
+  const [showVotingModal, setShowVotingModal] = useState(false);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [sessionTime, setSessionTime] = useState('18:00');
+  const [sessionVenue, setSessionVenue] = useState('Regular Venue');
+  const [costPerPlayer, setCostPerPlayer] = useState('10.00');
+  const [maxPlayers, setMaxPlayers] = useState('8');
+  const [sessionDescription, setSessionDescription] = useState('');
+
   // Check Supabase configuration and auth state on mount
   useEffect(() => {
     const configured = isSupabaseConfigured();
@@ -180,6 +191,35 @@ const TrainingTracker = () => {
         gamesObj[player] = Math.floor(Math.random() * 20) + 1;
       });
       setGamesPlayed(gamesObj);
+
+      // Load voting sessions
+      const { data: votingData, error: votingError } = await supabase
+        .from('voting_sessions')
+        .select('*')
+        .order('session_date', { ascending: true });
+
+      if (votingError) throw votingError;
+      setVotingSessions(votingData || []);
+
+      // Load player votes
+      const { data: votesData, error: votesError } = await supabase
+        .from('player_votes')
+        .select('*, voting_sessions(session_date), players(name)');
+
+      if (votesError) throw votesError;
+
+      // Transform votes data
+      const votesObj = {};
+      votesData.forEach(vote => {
+        const sessionDate = vote.voting_sessions.session_date;
+        const playerName = vote.players.name;
+        
+        if (!votesObj[sessionDate]) {
+          votesObj[sessionDate] = {};
+        }
+        votesObj[sessionDate][playerName] = vote.vote_status;
+      });
+      setPlayerVotes(votesObj);
 
     } catch (err) {
       console.error('Error loading data:', err);
@@ -872,6 +912,167 @@ const TrainingTracker = () => {
     return Object.values(weeks).sort((a, b) => b.weekStart - a.weekStart);
   };
 
+  // Voting system functions
+  const openVotingModal = (date = '') => {
+    setSelectedDate(date);
+    setSessionTime('18:00');
+    setSessionVenue('Regular Venue');
+    setCostPerPlayer('10.00');
+    setMaxPlayers('8');
+    setSessionDescription('');
+    setShowVotingModal(true);
+  };
+
+  const closeVotingModal = () => {
+    setShowVotingModal(false);
+    setSelectedDate('');
+  };
+
+  const createVotingSession = async () => {
+    if (!selectedDate || !costPerPlayer) return;
+
+    const sessionData = {
+      session_date: selectedDate,
+      session_time: sessionTime,
+      venue: sessionVenue,
+      cost_per_player: parseFloat(costPerPlayer),
+      max_players: parseInt(maxPlayers),
+      description: sessionDescription,
+      status: 'open'
+    };
+
+    // Update local state
+    setVotingSessions(prev => [...prev, { ...sessionData, id: Date.now() }]);
+
+    // Save to database if configured
+    if (dbConfigured && user) {
+      try {
+        const { error } = await supabase
+          .from('voting_sessions')
+          .insert({
+            ...sessionData,
+            created_by: user.id
+          });
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error creating voting session:', err);
+        setError('Failed to create voting session');
+      }
+    }
+
+    closeVotingModal();
+  };
+
+  const submitVote = async (sessionDate, playerName, voteStatus) => {
+    // Update local state
+    setPlayerVotes(prev => ({
+      ...prev,
+      [sessionDate]: {
+        ...prev[sessionDate],
+        [playerName]: voteStatus
+      }
+    }));
+
+    // Save to database if configured
+    if (dbConfigured && user) {
+      try {
+        const session = votingSessions.find(s => s.session_date === sessionDate);
+        const playerId = await getPlayerId(playerName);
+
+        const { error } = await supabase
+          .from('player_votes')
+          .upsert({
+            session_id: session.id,
+            player_id: playerId,
+            vote_status: voteStatus
+          }, {
+            onConflict: 'session_id,player_id'
+          });
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error submitting vote:', err);
+        setError('Failed to submit vote');
+      }
+    }
+  };
+
+  const completeSession = async (sessionDate) => {
+    const session = votingSessions.find(s => s.session_date === sessionDate);
+    const sessionVotes = playerVotes[sessionDate] || {};
+    const yesVotes = Object.entries(sessionVotes).filter(([_, vote]) => vote === 'yes');
+
+    if (yesVotes.length === 0) {
+      alert('No players voted yes for this session');
+      return;
+    }
+
+    // Add expenses for players who voted yes
+    const costPerPlayer = session.cost_per_player;
+    
+    for (const [playerName] of yesVotes) {
+      const newExpense = {
+        player: playerName,
+        amount: costPerPlayer,
+        description: `Badminton session - ${session.venue}`,
+        date: sessionDate
+      };
+
+      // Add to local expenses
+      setExpenses(prev => ({
+        ...prev,
+        [playerName]: [...(prev[playerName] || []), { ...newExpense, id: Date.now() + Math.random() }]
+      }));
+
+      // Save to database if configured
+      if (dbConfigured && user) {
+        try {
+          const playerId = await getPlayerId(playerName);
+          await supabase
+            .from('expenses')
+            .insert({
+              player_id: playerId,
+              amount: costPerPlayer,
+              description: newExpense.description,
+              date: sessionDate,
+              created_by: user.id
+            });
+        } catch (err) {
+          console.error('Error adding expense for player:', playerName, err);
+        }
+      }
+    }
+
+    // Update session status
+    setVotingSessions(prev => 
+      prev.map(s => 
+        s.session_date === sessionDate 
+          ? { ...s, status: 'completed' }
+          : s
+      )
+    );
+
+    // Update database if configured
+    if (dbConfigured && user) {
+      try {
+        await supabase
+          .from('voting_sessions')
+          .update({ status: 'completed' })
+          .eq('session_date', sessionDate);
+      } catch (err) {
+        console.error('Error updating session status:', err);
+      }
+    }
+
+    alert(`Session completed! Added £${costPerPlayer} expense for ${yesVotes.length} players.`);
+  };
+
+  const getVoteCount = (sessionDate, voteType) => {
+    const sessionVotes = playerVotes[sessionDate] || {};
+    return Object.values(sessionVotes).filter(vote => vote === voteType).length;
+  };
+
   // Show loading screen
   if (loading) {
     return (
@@ -969,6 +1170,13 @@ const TrainingTracker = () => {
                 title="Expense Statement"
               >
                 📊
+              </button>
+              <button
+                onClick={() => setView('voting')}
+                className={`px-4 py-2 rounded-lg ${view === 'voting' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}
+                title="Voting Calendar"
+              >
+                🗳️
               </button>
               <button
                 onClick={() => setShowPlayerManagement(true)}
@@ -1070,7 +1278,7 @@ const TrainingTracker = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Amount ($)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Amount (£)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1138,7 +1346,7 @@ const TrainingTracker = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Deposit Amount ($)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Deposit Amount (£)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1178,7 +1386,7 @@ const TrainingTracker = () => {
                     <div>
                       <span className="font-medium">{player}</span>
                       <div className="text-sm text-gray-600">
-                        Balance: ${getPlayerBalance(player).toFixed(2)} | 
+                        Balance: £{getPlayerBalance(player).toFixed(2)} | 
                         Games: {gamesPlayed[player] || 0} | 
                         Expenses: {(expenses[player] || []).length}
                       </div>
@@ -1252,6 +1460,90 @@ const TrainingTracker = () => {
           </div>
         )}
 
+        {/* Create Voting Session Modal */}
+        {showVotingModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Create Voting Session</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Session Date</label>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+                  <input
+                    type="time"
+                    value={sessionTime}
+                    onChange={(e) => setSessionTime(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Venue</label>
+                  <input
+                    type="text"
+                    value={sessionVenue}
+                    onChange={(e) => setSessionVenue(e.target.value)}
+                    placeholder="Regular Venue"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Cost per Player (£)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={costPerPlayer}
+                    onChange={(e) => setCostPerPlayer(e.target.value)}
+                    placeholder="10.00"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Max Players</label>
+                  <input
+                    type="number"
+                    value={maxPlayers}
+                    onChange={(e) => setMaxPlayers(e.target.value)}
+                    placeholder="8"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description (Optional)</label>
+                  <textarea
+                    value={sessionDescription}
+                    onChange={(e) => setSessionDescription(e.target.value)}
+                    placeholder="Additional details about the session..."
+                    rows="3"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 mt-6">
+                <button
+                  onClick={createVotingSession}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium"
+                >
+                  Create Session
+                </button>
+                <button
+                  onClick={closeVotingModal}
+                  className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Leaderboard View */}
         {view === 'leaderboard' && (
           <div className="space-y-6">
@@ -1295,13 +1587,13 @@ const TrainingTracker = () => {
                     <div className="flex-1">
                       <p className="font-semibold">{player.name}</p>
                       <p className="text-sm text-gray-600">
-                        Deposit: ${player.deposit.toFixed(2)} | {player.expenseCount} expenses
+                        Deposit: £{player.deposit.toFixed(2)} | {player.expenseCount} expenses
                       </p>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-bold text-red-700">${player.totalExpenses.toFixed(2)}</div>
+                      <div className="text-lg font-bold text-red-700">£{player.totalExpenses.toFixed(2)}</div>
                       <div className={`text-sm font-medium ${player.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        Balance: ${player.balance.toFixed(2)}
+                        Balance: £{player.balance.toFixed(2)}
                       </div>
                     </div>
                   </div>
@@ -1328,7 +1620,7 @@ const TrainingTracker = () => {
                 </div>
                 <div className="text-right">
                   <div className="text-sm text-gray-600">Total Expenses</div>
-                  <div className="text-3xl font-bold text-green-600">${getTotalExpenses().toFixed(2)}</div>
+                  <div className="text-3xl font-bold text-green-600">£{getTotalExpenses().toFixed(2)}</div>
                 </div>
               </div>
 
@@ -1360,7 +1652,7 @@ const TrainingTracker = () => {
                           <tr key={player} className="hover:bg-gray-50">
                             <td className="px-6 py-4 font-medium text-gray-800">{player}</td>
                             <td className="px-6 py-4 text-right font-bold text-green-600">
-                              ${total.toFixed(2)}
+                              £{total.toFixed(2)}
                             </td>
                             <td className="px-6 py-4 text-center text-gray-600">
                               {playerExpenses.length}
@@ -1389,7 +1681,7 @@ const TrainingTracker = () => {
                   <div key={player} className="bg-white rounded-lg shadow-lg p-6">
                     <h3 className="text-xl font-bold mb-4 flex items-center justify-between">
                       <span>{player}</span>
-                      <span className="text-green-600">${getPlayerExpenseTotal(player).toFixed(2)}</span>
+                      <span className="text-green-600">£{getPlayerExpenseTotal(player).toFixed(2)}</span>
                     </h3>
                     <div className="space-y-3">
                       {playerExpenses
@@ -1407,7 +1699,7 @@ const TrainingTracker = () => {
                             </div>
                             <div className="flex items-center gap-4">
                               <div className="text-lg font-bold text-green-600">
-                                ${parseFloat(expense.amount).toFixed(2)}
+                                £{parseFloat(expense.amount).toFixed(2)}
                               </div>
                               <button
                                 onClick={() => deleteExpense(player, expense.id)}
@@ -1453,12 +1745,12 @@ const TrainingTracker = () => {
                         )}
                         {deposit > 0 && (
                           <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs">
-                            Deposit: ${deposit.toFixed(2)}
+                            Deposit: £{deposit.toFixed(2)}
                           </span>
                         )}
                         {(deposit > 0 || totalExpenses > 0) && (
                           <span className={`px-2 py-1 rounded-full text-xs font-bold ${balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            Balance: ${balance.toFixed(2)}
+                            Balance: £{balance.toFixed(2)}
                           </span>
                         )}
                         {expenseCount > 0 && (
@@ -1500,7 +1792,7 @@ const TrainingTracker = () => {
                         </div>
                         <div className="text-right">
                           <div className={`text-2xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            ${balance.toFixed(2)}
+                            £{balance.toFixed(2)}
                           </div>
                           <div className="text-sm text-gray-600">Current Balance</div>
                         </div>
@@ -1509,7 +1801,7 @@ const TrainingTracker = () => {
                       {/* Summary Row */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                         <div className="bg-white p-3 rounded text-center">
-                          <div className="text-lg font-bold text-green-600">${deposit.toFixed(2)}</div>
+                          <div className="text-lg font-bold text-green-600">£{deposit.toFixed(2)}</div>
                           <div className="text-xs text-gray-600">Deposit</div>
                         </div>
                         <div className="bg-white p-3 rounded text-center">
@@ -1517,12 +1809,12 @@ const TrainingTracker = () => {
                           <div className="text-xs text-gray-600">Games Played</div>
                         </div>
                         <div className="bg-white p-3 rounded text-center">
-                          <div className="text-lg font-bold text-red-600">${totalExpenses.toFixed(2)}</div>
+                          <div className="text-lg font-bold text-red-600">£{totalExpenses.toFixed(2)}</div>
                           <div className="text-xs text-gray-600">Total Expenses</div>
                         </div>
                         <div className="bg-white p-3 rounded text-center">
                           <div className={`text-lg font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            ${balance.toFixed(2)}
+                            £{balance.toFixed(2)}
                           </div>
                           <div className="text-xs text-gray-600">Balance</div>
                         </div>
@@ -1545,14 +1837,14 @@ const TrainingTracker = () => {
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <div className="font-bold text-red-600">${week.total.toFixed(2)}</div>
+                                    <div className="font-bold text-red-600">£{week.total.toFixed(2)}</div>
                                   </div>
                                 </div>
                                 <div className="mt-2 space-y-1">
                                   {week.expenses.map((expense, expIndex) => (
                                     <div key={expIndex} className="text-sm text-gray-600 flex justify-between">
                                       <span>{expense.description || 'No description'}</span>
-                                      <span>${parseFloat(expense.amount).toFixed(2)}</span>
+                                      <span>£{parseFloat(expense.amount).toFixed(2)}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -1571,6 +1863,179 @@ const TrainingTracker = () => {
                   );
                 })}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Voting Calendar View */}
+        {view === 'voting' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  🗳️ Session Voting Calendar
+                </h2>
+                <button
+                  onClick={() => openVotingModal()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Create Session
+                </button>
+              </div>
+
+              {/* Upcoming Sessions */}
+              <div className="space-y-4">
+                {votingSessions
+                  .filter(session => new Date(session.session_date) >= new Date())
+                  .map(session => {
+                    const yesVotes = getVoteCount(session.session_date, 'yes');
+                    const noVotes = getVoteCount(session.session_date, 'no');
+                    const maybeVotes = getVoteCount(session.session_date, 'maybe');
+                    
+                    return (
+                      <div key={session.id} className="border rounded-lg p-4 bg-gray-50">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold">
+                              {new Date(session.session_date).toLocaleDateString('en-GB', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })}
+                            </h3>
+                            <p className="text-gray-600">
+                              {session.session_time} at {session.venue} • £{session.cost_per_player} per player
+                            </p>
+                            {session.description && (
+                              <p className="text-sm text-gray-500 mt-1">{session.description}</p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <div className={`px-3 py-1 rounded text-sm font-medium ${
+                              session.status === 'completed' ? 'bg-green-100 text-green-700' :
+                              session.status === 'closed' ? 'bg-red-100 text-red-700' :
+                              'bg-blue-100 text-blue-700'
+                            }`}>
+                              {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Vote Summary */}
+                        <div className="flex gap-4 mb-4 text-sm">
+                          <span className="text-green-600 font-medium">✓ Yes: {yesVotes}</span>
+                          <span className="text-red-600 font-medium">✗ No: {noVotes}</span>
+                          <span className="text-yellow-600 font-medium">? Maybe: {maybeVotes}</span>
+                        </div>
+
+                        {/* Player Voting Grid */}
+                        {session.status === 'open' && (
+                          <div>
+                            <h4 className="font-medium mb-3">Player Votes:</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                              {playersList.map(player => {
+                                const playerVote = playerVotes[session.session_date]?.[player];
+                                
+                                return (
+                                  <div key={player} className="border rounded p-2 bg-white">
+                                    <div className="text-sm font-medium mb-2">{player}</div>
+                                    <div className="flex gap-1">
+                                      <button
+                                        onClick={() => submitVote(session.session_date, player, 'yes')}
+                                        className={`px-2 py-1 text-xs rounded ${
+                                          playerVote === 'yes' 
+                                            ? 'bg-green-600 text-white' 
+                                            : 'bg-gray-200 hover:bg-green-100'
+                                        }`}
+                                      >
+                                        ✓
+                                      </button>
+                                      <button
+                                        onClick={() => submitVote(session.session_date, player, 'no')}
+                                        className={`px-2 py-1 text-xs rounded ${
+                                          playerVote === 'no' 
+                                            ? 'bg-red-600 text-white' 
+                                            : 'bg-gray-200 hover:bg-red-100'
+                                        }`}
+                                      >
+                                        ✗
+                                      </button>
+                                      <button
+                                        onClick={() => submitVote(session.session_date, player, 'maybe')}
+                                        className={`px-2 py-1 text-xs rounded ${
+                                          playerVote === 'maybe' 
+                                            ? 'bg-yellow-600 text-white' 
+                                            : 'bg-gray-200 hover:bg-yellow-100'
+                                        }`}
+                                      >
+                                        ?
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Complete Session Button */}
+                        {session.status === 'open' && yesVotes > 0 && (
+                          <div className="mt-4 pt-4 border-t">
+                            <button
+                              onClick={() => completeSession(session.session_date)}
+                              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                            >
+                              Complete Session & Add Expenses ({yesVotes} players)
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                {votingSessions.filter(session => new Date(session.session_date) >= new Date()).length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    No upcoming sessions. Create one to start voting!
+                  </div>
+                )}
+              </div>
+
+              {/* Past Sessions */}
+              {votingSessions.filter(session => new Date(session.session_date) < new Date()).length > 0 && (
+                <div className="mt-8">
+                  <h3 className="text-lg font-bold mb-4">Past Sessions</h3>
+                  <div className="space-y-2">
+                    {votingSessions
+                      .filter(session => new Date(session.session_date) < new Date())
+                      .slice(0, 5)
+                      .map(session => {
+                        const yesVotes = getVoteCount(session.session_date, 'yes');
+                        
+                        return (
+                          <div key={session.id} className="flex justify-between items-center p-3 bg-gray-100 rounded">
+                            <div>
+                              <span className="font-medium">
+                                {new Date(session.session_date).toLocaleDateString('en-GB')}
+                              </span>
+                              <span className="text-gray-600 ml-2">
+                                {session.venue} • £{session.cost_per_player}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-600 font-medium">{yesVotes} players</span>
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                session.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gray-200'
+                              }`}>
+                                {session.status}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1632,19 +2097,19 @@ const TrainingTracker = () => {
                         <div className="bg-white p-4 rounded-lg text-center">
                           <div className="text-sm text-gray-600">Deposit</div>
                           <div className="text-2xl font-bold text-green-600">
-                            ${deposit.toFixed(2)}
+                            £{deposit.toFixed(2)}
                           </div>
                         </div>
                         <div className="bg-white p-4 rounded-lg text-center">
                           <div className="text-sm text-gray-600">Total Expenses</div>
                           <div className="text-2xl font-bold text-red-600">
-                            ${totalExpenses.toFixed(2)}
+                            £{totalExpenses.toFixed(2)}
                           </div>
                         </div>
                         <div className="bg-white p-4 rounded-lg text-center">
                           <div className="text-sm text-gray-600">Balance</div>
                           <div className={`text-2xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            ${balance.toFixed(2)}
+                            £{balance.toFixed(2)}
                           </div>
                         </div>
                         <div className="bg-white p-4 rounded-lg text-center">
@@ -1656,7 +2121,7 @@ const TrainingTracker = () => {
                         <div className="bg-white p-4 rounded-lg text-center">
                           <div className="text-sm text-gray-600">Average Expense</div>
                           <div className="text-2xl font-bold text-purple-600">
-                            ${avgExpense.toFixed(2)}
+                            £{avgExpense.toFixed(2)}
                           </div>
                         </div>
                       </div>
@@ -1677,7 +2142,7 @@ const TrainingTracker = () => {
                                   </div>
                                 </div>
                                 <div className="text-lg font-bold text-red-600">
-                                  ${parseFloat(expense.amount).toFixed(2)}
+                                  £{parseFloat(expense.amount).toFixed(2)}
                                 </div>
                               </div>
                             ))}
