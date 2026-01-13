@@ -47,6 +47,15 @@ const TrainingTracker = () => {
   const [depositPlayer, setDepositPlayer] = useState('');
   const [depositAmount, setDepositAmount] = useState('');
 
+  // Player management state
+  const [showPlayerManagement, setShowPlayerManagement] = useState(false);
+  const [showReplacePlayerModal, setShowReplacePlayerModal] = useState(false);
+  const [playerToReplace, setPlayerToReplace] = useState('');
+  const [newPlayerNameForReplace, setNewPlayerNameForReplace] = useState('');
+
+  // Games played state (for expense statement)
+  const [gamesPlayed, setGamesPlayed] = useState({});
+
   // Check Supabase configuration and auth state on mount
   useEffect(() => {
     const configured = isSupabaseConfigured();
@@ -163,6 +172,15 @@ const TrainingTracker = () => {
       });
       setDeposits(depositsObj);
 
+      // Load games played data (for now, we'll use a simple counter per player)
+      // In a real app, this would come from a games/matches table
+      const gamesObj = {};
+      playersList.forEach(player => {
+        // For demo purposes, assign random games played (1-20)
+        gamesObj[player] = Math.floor(Math.random() * 20) + 1;
+      });
+      setGamesPlayed(gamesObj);
+
     } catch (err) {
       console.error('Error loading data:', err);
       setError('Failed to load data from database. Using offline mode.');
@@ -245,10 +263,12 @@ const TrainingTracker = () => {
       const totalExpenses = playerExpenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
       const deposit = deposits[player] || 0;
       const balance = getPlayerBalance(player);
+      const games = gamesPlayed[player] || 0;
 
       const row = {
         'Player Name': player,
         'Skills Average': getPlayerAverage(player),
+        'Games Played': games,
         'Deposit': deposit.toFixed(2),
         'Total Expenses': totalExpenses.toFixed(2),
         'Balance': balance.toFixed(2),
@@ -533,6 +553,172 @@ const TrainingTracker = () => {
     return deposit - totalExpenses;
   };
 
+  // Player management functions
+  const openReplacePlayerModal = (player) => {
+    setPlayerToReplace(player);
+    setNewPlayerNameForReplace('');
+    setShowReplacePlayerModal(true);
+  };
+
+  const closeReplacePlayerModal = () => {
+    setShowReplacePlayerModal(false);
+    setPlayerToReplace('');
+    setNewPlayerNameForReplace('');
+  };
+
+  const replacePlayer = async () => {
+    if (!playerToReplace || !newPlayerNameForReplace.trim()) return;
+
+    const oldName = playerToReplace;
+    const newName = newPlayerNameForReplace.trim();
+
+    // Update local state
+    setPlayersList(prev => prev.map(p => p === oldName ? newName : p));
+    
+    // Update ratings
+    if (ratings[oldName]) {
+      setRatings(prev => {
+        const newRatings = { ...prev };
+        newRatings[newName] = newRatings[oldName];
+        delete newRatings[oldName];
+        return newRatings;
+      });
+    }
+
+    // Update expenses
+    if (expenses[oldName]) {
+      setExpenses(prev => {
+        const newExpenses = { ...prev };
+        newExpenses[newName] = newExpenses[oldName];
+        delete newExpenses[oldName];
+        return newExpenses;
+      });
+    }
+
+    // Update deposits
+    if (deposits[oldName]) {
+      setDeposits(prev => {
+        const newDeposits = { ...prev };
+        newDeposits[newName] = newDeposits[oldName];
+        delete newDeposits[oldName];
+        return newDeposits;
+      });
+    }
+
+    // Update games played
+    if (gamesPlayed[oldName]) {
+      setGamesPlayed(prev => {
+        const newGames = { ...prev };
+        newGames[newName] = newGames[oldName];
+        delete newGames[oldName];
+        return newGames;
+      });
+    }
+
+    // Update database if configured
+    if (dbConfigured && user) {
+      try {
+        // Update player name in database
+        const { error } = await supabase
+          .from('players')
+          .update({ name: newName })
+          .eq('name', oldName);
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error replacing player in database:', err);
+        setError('Failed to update player in database');
+      }
+    }
+
+    // Reset selected player if it was the replaced one
+    if (selectedPlayer === oldName) {
+      setSelectedPlayer(newName);
+    }
+
+    closeReplacePlayerModal();
+  };
+
+  const removePlayer = async (playerName) => {
+    if (!window.confirm(`Are you sure you want to remove ${playerName}? This will delete all their data.`)) {
+      return;
+    }
+
+    // Update local state
+    setPlayersList(prev => prev.filter(p => p !== playerName));
+    
+    // Remove from all data structures
+    setRatings(prev => {
+      const newRatings = { ...prev };
+      delete newRatings[playerName];
+      return newRatings;
+    });
+
+    setExpenses(prev => {
+      const newExpenses = { ...prev };
+      delete newExpenses[playerName];
+      return newExpenses;
+    });
+
+    setDeposits(prev => {
+      const newDeposits = { ...prev };
+      delete newDeposits[playerName];
+      return newDeposits;
+    });
+
+    setGamesPlayed(prev => {
+      const newGames = { ...prev };
+      delete newGames[playerName];
+      return newGames;
+    });
+
+    // Remove from database if configured
+    if (dbConfigured && user) {
+      try {
+        const { error } = await supabase
+          .from('players')
+          .delete()
+          .eq('name', playerName);
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error removing player from database:', err);
+        setError('Failed to remove player from database');
+      }
+    }
+
+    // Reset selected player if it was the removed one
+    if (selectedPlayer === playerName) {
+      setSelectedPlayer(null);
+    }
+  };
+
+  // Get weekly expense breakdown for a player
+  const getWeeklyExpenseBreakdown = (player) => {
+    const playerExpenses = expenses[player] || [];
+    const weeks = {};
+    
+    playerExpenses.forEach(expense => {
+      const date = new Date(expense.date);
+      const weekStart = new Date(date);
+      weekStart.setDate(date.getDate() - date.getDay()); // Start of week (Sunday)
+      const weekKey = weekStart.toISOString().split('T')[0];
+      
+      if (!weeks[weekKey]) {
+        weeks[weekKey] = {
+          weekStart: weekStart,
+          expenses: [],
+          total: 0
+        };
+      }
+      
+      weeks[weekKey].expenses.push(expense);
+      weeks[weekKey].total += parseFloat(expense.amount);
+    });
+
+    return Object.values(weeks).sort((a, b) => b.weekStart - a.weekStart);
+  };
+
   // Show loading screen
   if (loading) {
     return (
@@ -623,6 +809,20 @@ const TrainingTracker = () => {
                 className={`px-4 py-2 rounded-lg ${view === 'expenses' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}
               >
                 <DollarSign size={20} />
+              </button>
+              <button
+                onClick={() => setView('statement')}
+                className={`px-4 py-2 rounded-lg ${view === 'statement' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}
+                title="Expense Statement"
+              >
+                📊
+              </button>
+              <button
+                onClick={() => setShowPlayerManagement(true)}
+                className="px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700"
+                title="Manage Players"
+              >
+                ⚙️
               </button>
               <button
                 onClick={() => setShowAddPlayer(true)}
@@ -805,6 +1005,91 @@ const TrainingTracker = () => {
                 </button>
                 <button
                   onClick={closeDepositModal}
+                  className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Player Management Modal */}
+        {showPlayerManagement && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-96 overflow-y-auto">
+              <h3 className="text-xl font-bold mb-4">Manage Players</h3>
+              <div className="space-y-3">
+                {playersList.map(player => (
+                  <div key={player} className="flex justify-between items-center p-3 border rounded-lg">
+                    <div>
+                      <span className="font-medium">{player}</span>
+                      <div className="text-sm text-gray-600">
+                        Balance: ${getPlayerBalance(player).toFixed(2)} | 
+                        Games: {gamesPlayed[player] || 0} | 
+                        Expenses: {(expenses[player] || []).length}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openReplacePlayerModal(player)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                      >
+                        Replace
+                      </button>
+                      <button
+                        onClick={() => removePlayer(player)}
+                        className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowPlayerManagement(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Replace Player Modal */}
+        {showReplacePlayerModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Replace Player</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Replacing: <strong>{playerToReplace}</strong>
+                  </label>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">New Player Name</label>
+                  <input
+                    type="text"
+                    value={newPlayerNameForReplace}
+                    onChange={(e) => setNewPlayerNameForReplace(e.target.value)}
+                    placeholder="Enter new player name"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 mt-6">
+                <button
+                  onClick={replacePlayer}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium"
+                >
+                  Replace Player
+                </button>
+                <button
+                  onClick={closeReplacePlayerModal}
                   className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 font-medium"
                 >
                   Cancel
@@ -1033,6 +1318,106 @@ const TrainingTracker = () => {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Expense Statement View */}
+        {view === 'statement' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                📊 Player Expense Statements
+              </h2>
+              
+              <div className="grid gap-6">
+                {playersList.map(player => {
+                  const deposit = deposits[player] || 0;
+                  const totalExpenses = getPlayerExpenseTotal(player);
+                  const balance = getPlayerBalance(player);
+                  const games = gamesPlayed[player] || 0;
+                  const weeklyBreakdown = getWeeklyExpenseBreakdown(player);
+                  
+                  return (
+                    <div key={player} className="border rounded-lg p-6 bg-gray-50">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="text-xl font-bold text-gray-800">{player}</h3>
+                          <p className="text-gray-600">Financial Statement</p>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-2xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${balance.toFixed(2)}
+                          </div>
+                          <div className="text-sm text-gray-600">Current Balance</div>
+                        </div>
+                      </div>
+
+                      {/* Summary Row */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-white p-3 rounded text-center">
+                          <div className="text-lg font-bold text-green-600">${deposit.toFixed(2)}</div>
+                          <div className="text-xs text-gray-600">Deposit</div>
+                        </div>
+                        <div className="bg-white p-3 rounded text-center">
+                          <div className="text-lg font-bold text-blue-600">{games}</div>
+                          <div className="text-xs text-gray-600">Games Played</div>
+                        </div>
+                        <div className="bg-white p-3 rounded text-center">
+                          <div className="text-lg font-bold text-red-600">${totalExpenses.toFixed(2)}</div>
+                          <div className="text-xs text-gray-600">Total Expenses</div>
+                        </div>
+                        <div className="bg-white p-3 rounded text-center">
+                          <div className={`text-lg font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${balance.toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-600">Balance</div>
+                        </div>
+                      </div>
+
+                      {/* Weekly Breakdown */}
+                      {weeklyBreakdown.length > 0 && (
+                        <div>
+                          <h4 className="font-semibold text-gray-700 mb-3">Weekly Expense Breakdown</h4>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {weeklyBreakdown.map((week, index) => (
+                              <div key={index} className="bg-white p-3 rounded border">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <div className="font-medium">
+                                      Week of {week.weekStart.toLocaleDateString()}
+                                    </div>
+                                    <div className="text-sm text-gray-600">
+                                      {week.expenses.length} transaction{week.expenses.length !== 1 ? 's' : ''}
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-bold text-red-600">${week.total.toFixed(2)}</div>
+                                  </div>
+                                </div>
+                                <div className="mt-2 space-y-1">
+                                  {week.expenses.map((expense, expIndex) => (
+                                    <div key={expIndex} className="text-sm text-gray-600 flex justify-between">
+                                      <span>{expense.description || 'No description'}</span>
+                                      <span>${parseFloat(expense.amount).toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {weeklyBreakdown.length === 0 && (
+                        <div className="text-center py-4 text-gray-500">
+                          No expenses recorded for this player
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
